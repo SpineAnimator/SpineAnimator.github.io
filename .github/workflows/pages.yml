@@ -94,8 +94,7 @@ jobs:
               echo "::error::API preflight HTTP $status for $endpoint"
               exit 1
             fi
-            if ! grep -Eiq '^access-control-allow-origin:[[:space:]]*https://spineanimator\.github\.io[[:space:]]*
- "$headers"; then
+            if ! grep -Fiq 'access-control-allow-origin: https://spineanimator.github.io' "$headers"; then
               echo "::error::Missing canonical Origin permission for $endpoint"
               exit 1
             fi
