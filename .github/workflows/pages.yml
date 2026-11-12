@@ -1,0 +1,54 @@
+name: Deploy sanitized Spine Animator site
+on:
+  push:
+    branches: [main]
+    paths:
+      - index.html
+      - app.js
+      - README.md
+      - .nojekyll
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: public-pages-deploy
+  cancel-in-progress: true
+jobs:
+  deploy:
+    if: github.repository == 'SpineAnimator/SpineAnimator.github.io'
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Reject unexpected sources and prepare frontend-only artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check app.js
+          git ls-files --error-unmatch .nojekyll README.md app.js index.html .github/workflows/pages.yml >/dev/null
+          test "$(git ls-files | wc -l)" -eq 5 || { echo "::error::Unsafe extra file in public Pages repository"; exit 1; }
+          test -s index.html && test -s app.js
+          if grep -nEi 'github_pat_|ghp_[A-Za-z0-9]{20}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|ACCESS_TOKEN|SPINE_LICENSE_KEY|CLOUDFLARE_API_TOKEN' index.html app.js; then
+            echo "::error::Potential private credentials in public Pages"; exit 1
+          fi
+          mkdir dist
+          cp index.html app.js .nojekyll dist/
+          test "$(find dist -type f | wc -l)" -eq 3
+          echo 'PUBLIC_PAGES_ALLOWLIST_PASS'
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+      - uses: actions/deploy-pages@v4
+        id: deployment
