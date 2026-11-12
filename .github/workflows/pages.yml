@@ -74,3 +74,31 @@ jobs:
           node --check "$RUNNER_TEMP/published-app.js"
           grep -Fq 'Cloud animation in progress' "$RUNNER_TEMP/published-app.js"
           echo "LIVE_PAGES_HTML_AND_JS_PASS $PUBLIC_PAGE_URL" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify cloud animation API preflights
+        shell: bash
+        run: |
+          set -euo pipefail
+          for endpoint in \
+            "https://spine-studio.spine-animator-f8692224.workers.dev/api/plan" \
+            "https://spine-generator.spine-animator-f8692224.workers.dev/api/build"; do
+            headers="$(mktemp)"
+            status="$(curl --silent --show-error --retry 3 --retry-delay 2 --max-time 15 \
+              --output /dev/null --dump-header "$headers" \
+              --request OPTIONS \
+              --header 'Origin: https://spineanimator.github.io' \
+              --header 'Access-Control-Request-Method: POST' \
+              --header 'Access-Control-Request-Headers: content-type' \
+              --write-out '%{http_code}' "$endpoint")"
+            if [[ "$status" != 200 && "$status" != 204 ]]; then
+              echo "::error::API preflight HTTP $status for $endpoint"
+              exit 1
+            fi
+            if ! grep -Eiq '^access-control-allow-origin:[[:space:]]*https://spineanimator\.github\.io[[:space:]]*
+ "$headers"; then
+              echo "::error::Missing canonical Origin permission for $endpoint"
+              exit 1
+            fi
+            echo "API_PREFLIGHT_PASS $endpoint" >> "$GITHUB_STEP_SUMMARY"
+            rm -f "$headers"
+          done
