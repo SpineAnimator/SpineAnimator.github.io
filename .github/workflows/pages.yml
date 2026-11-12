@@ -52,3 +52,25 @@ jobs:
           path: dist
       - uses: actions/deploy-pages@v4
         id: deployment
+      - name: Verify published HTML and JavaScript over HTTPS
+        shell: bash
+        env:
+          PUBLIC_PAGE_URL: ${{ steps.deployment.outputs.page_url }}
+        run: |
+          set -euo pipefail
+          test -n "$PUBLIC_PAGE_URL" || { echo '::error::Deployment returned no public URL'; exit 1; }
+          case "$PUBLIC_PAGE_URL" in
+            https://spineanimator.github.io/|https://spineanimator.github.io) ;;
+            *) echo "::error::Unexpected Pages origin: $PUBLIC_PAGE_URL"; exit 1 ;;
+          esac
+          curl --fail --silent --show-error --location \
+            --retry 8 --retry-delay 4 --retry-all-errors --max-time 15 \
+            "https://spineanimator.github.io/" -o "$RUNNER_TEMP/published-index.html"
+          grep -Fq 'SPINE ANIMATOR' "$RUNNER_TEMP/published-index.html"
+          grep -Fq 'src="./app.js"' "$RUNNER_TEMP/published-index.html"
+          curl --fail --silent --show-error --location \
+            --retry 8 --retry-delay 4 --retry-all-errors --max-time 15 \
+            "https://spineanimator.github.io/app.js" -o "$RUNNER_TEMP/published-app.js"
+          node --check "$RUNNER_TEMP/published-app.js"
+          grep -Fq 'Cloud animation in progress' "$RUNNER_TEMP/published-app.js"
+          echo "LIVE_PAGES_HTML_AND_JS_PASS $PUBLIC_PAGE_URL" >> "$GITHUB_STEP_SUMMARY"
