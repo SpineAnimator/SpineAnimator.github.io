@@ -39,6 +39,8 @@ jobs:
           git ls-files --error-unmatch .nojekyll README.md app.js index.html .github/workflows/pages.yml >/dev/null
           test "$(git ls-files | wc -l)" -eq 5 || { echo "::error::Unsafe extra file in public Pages repository"; exit 1; }
           test -s index.html && test -s app.js
+          grep -Fq '<span class="version">v.1.4.2</span>' index.html || { echo "::error::Expected restored website v1.4.2"; exit 1; }
+          grep -Fq 'src="./app.js"' index.html || { echo "::error::Missing audited app.js reference"; exit 1; }
           if grep -nEi 'github_pat_|ghp_[A-Za-z0-9]{20}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|ACCESS_TOKEN|SPINE_LICENSE_KEY|CLOUDFLARE_API_TOKEN' index.html app.js; then
             echo "::error::Potential private credentials in public Pages"; exit 1
           fi
@@ -68,6 +70,7 @@ jobs:
             "https://spineanimator.github.io/" -o "$RUNNER_TEMP/published-index.html"
           grep -Fq 'SPINE ANIMATOR' "$RUNNER_TEMP/published-index.html"
           grep -Fq 'src="./app.js"' "$RUNNER_TEMP/published-index.html"
+          grep -Fq '<span class="version">v.1.4.2</span>' "$RUNNER_TEMP/published-index.html"
           curl --fail --silent --show-error --location \
             --retry 8 --retry-delay 4 --retry-all-errors --max-time 15 \
             "https://spineanimator.github.io/app.js" -o "$RUNNER_TEMP/published-app.js"
