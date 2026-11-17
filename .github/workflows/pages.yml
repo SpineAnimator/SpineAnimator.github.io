@@ -39,6 +39,42 @@ jobs:
           node --check app.js
           node --input-type=module --check < Spine-Mask-Tool/core.js
           node --input-type=module --check < Spine-Mask-Tool/app.js
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const source=fs.readFileSync('Spine-Mask-Tool/core.js','utf8');
+          const {imageMask,availableRegions,exportJson} =
+            await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
+          const w=112,h=56,rgba=new Uint8ClampedArray(w*h*4);
+          function pixel(x,y){rgba[(y*w+x)*4+3]=255;}
+          for(let y=5;y<=49;y++)for(let x=6;x<=39;x++)
+            if(!((x>14&&x<33&&y>11&&y<24)||(x>14&&x<33&&y>30&&y<44)))pixel(x,y);
+          for(let y=7;y<=47;y++)for(let x=55;x<=96;x++)
+            if(!(x>63&&x<89&&y>16&&y<39))pixel(x,y);
+          for(let y=1;y<=3;y++)for(let x=106;x<=109;x++)pixel(x,y);
+          const r=imageMask({width:w,height:h,data:rgba},{bridgeWidth:2,minArea:2});
+          assert.equal(r.stats.shapes,3);
+          assert.equal(r.stats.bridges,2);
+          assert.equal(r.stats.slits,3);
+          const original={skeleton:{spine:'4.3.26'},bones:[{name:'root'}],
+            slots:[{name:'image',bone:'root',attachment:'image'}],
+            skins:[{name:'default',attachments:{image:{
+              image:{type:'region',path:'image',width:w,height:h}}}}],
+            animations:{idle:{}}};
+          const saved=JSON.stringify(original);
+          const out=exportJson(original,availableRegions(original)[0],r.points,w,h);
+          assert.equal(JSON.stringify(original),saved);
+          assert.equal(out.json.slots[0].attachment,'clip');
+          assert.equal(out.json.slots[1].name,'image');
+          assert.equal(out.json.skins[0].attachments[out.slot].clip.end,'image');
+          assert.equal(out.json.skins[0].attachments[out.slot].clip.vertexCount,r.stats.vertices);
+          assert.ok(out.json.animations.idle);
+          const html=fs.readFileSync('Spine-Mask-Tool/index.html','utf8');
+          const app=fs.readFileSync('Spine-Mask-Tool/app.js','utf8');
+          assert.ok(html.includes('id="image-source"'), 'missing image picker');
+          assert.ok(app.includes('Binary .spine needs conversion'), 'binary import must fail closed');
+          console.log('MASK_TOOL_GEOMETRY_AND_EXPORT_PASS', r.stats);
+          NODE
           git ls-files --error-unmatch .nojekyll README.md app.js index.html .github/workflows/pages.yml Spine-Mask-Tool/core.js Spine-Mask-Tool/app.js Spine-Mask-Tool/index.html >/dev/null
           test "$(git ls-files | wc -l)" -eq 8 || { echo "::error::Unsafe extra file in public Pages repository"; exit 1; }
           test -s index.html && test -s app.js
