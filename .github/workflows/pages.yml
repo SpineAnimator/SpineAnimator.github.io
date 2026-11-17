@@ -129,6 +129,98 @@ jobs:
           echo "LIVE_PAGES_HTML_AND_JS_PASS $PUBLIC_PAGE_URL" >> "$GITHUB_STEP_SUMMARY"
           echo "LIVE_SPINE_MASK_TOOL_PASS https://spineanimator.github.io/Spine-Mask-Tool/" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Browser smoke — upload PNG, generate mask, select target, download JSON
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/mask-smoke"
+          npm install --prefix "$RUNNER_TEMP/mask-smoke" --no-audit --no-fund --silent playwright@1.56.1
+          CHROME_PATH="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          if [ -z "$CHROME_PATH" ]; then
+            "$RUNNER_TEMP/mask-smoke/node_modules/.bin/playwright" install chromium
+          fi
+          export CHROME_PATH
+          cat > "$RUNNER_TEMP/mask-smoke/smoke.mjs" <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          import os from 'node:os';
+          import path from 'node:path';
+          import { chromium } from 'playwright';
+          const opts={headless:true,args:['--no-sandbox','--disable-dev-shm-usage']};
+          if(process.env.CHROME_PATH) opts.executablePath=process.env.CHROME_PATH;
+          const browser=await chromium.launch(opts);
+          const page=await browser.newPage({acceptDownloads:true});
+          const pageErrors=[];
+          page.on('pageerror',err=>pageErrors.push(err.message));
+          const url='https://spineanimator.github.io/Spine-Mask-Tool/';
+          try {
+            const response=await page.goto(url,{waitUntil:'load',timeout:45000});
+            assert.equal(response.status(),200,'Mask Tool page must return 200');
+            await page.waitForFunction(()=>document.getElementById('status')?.textContent.includes('Drop'),{timeout:30000});
+            const png64=await page.evaluate(()=>{
+              const c=document.createElement('canvas');c.width=112;c.height=56;
+              const ctx=c.getContext('2d');
+              ctx.clearRect(0,0,112,56);ctx.fillStyle='#ffb320';
+              ctx.fillRect(6,5,34,45);ctx.clearRect(15,12,18,12);ctx.clearRect(15,31,18,13);
+              ctx.fillRect(55,7,42,41);ctx.clearRect(64,17,25,22);
+              ctx.fillRect(106,1,4,3);
+              return c.toDataURL('image/png').split(',')[1];
+            });
+            const png=Buffer.from(png64,'base64');
+            await page.locator('#files').setInputFiles([{name:'image.png',mimeType:'image/png',buffer:png}]);
+            await page.waitForFunction(()=>document.getElementById('source-name')?.textContent.includes('image.png'));
+            await page.locator('#generate').click();
+            await page.waitForFunction(()=>document.getElementById('summary')?.textContent.startsWith('ONE CLIPPING MASK'),{timeout:30000});
+            assert.equal(await page.locator('#download-json').isEnabled(),true);
+            const [download]=await Promise.all([page.waitForEvent('download'),page.locator('#download-json').click()]);
+            const out=path.join(os.tmpdir(),'mask-ui-test.json');
+            await download.saveAs(out);
+            const single=JSON.parse(fs.readFileSync(out,'utf8'));
+            const newSlot=single.slots.find(s=>s.name.startsWith('auto_mask_'));
+            assert.ok(newSlot);
+            const clip=single.skins[0].attachments[newSlot.name].clip;
+            assert.equal(clip.type,'clipping');assert.equal(clip.end,'image');
+            assert.ok(clip.vertexCount>10);assert.equal(clip.vertices.length,clip.vertexCount*2);
+            await page.locator('#reset').click();
+            assert.equal(await page.locator('#download-json').isDisabled(),true);
+            const skel={
+              skeleton:{spine:'4.3.26',width:112,height:56,images:'./images/'},
+              bones:[{name:'root'}],
+              slots:[{name:'logo',bone:'root',attachment:'word'}],
+              skins:[{name:'default',attachments:{logo:{word:{type:'region',path:'word',width:112,height:56}}}}],
+              animations:{idle:{}}
+            };
+            await page.locator('#files').setInputFiles([
+              {name:'skeleton.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(skel))},
+              {name:'other.png',mimeType:'image/png',buffer:png},
+              {name:'real.png',mimeType:'image/png',buffer:png}
+            ]);
+            await page.locator('#generate').click();
+            await page.waitForFunction(()=>document.getElementById('status')?.textContent.includes('Select the exact PNG'));
+            assert.equal(await page.locator('#download-json').isDisabled(),true);
+            await page.locator('#image-source').selectOption({label:'real.png'});
+            await page.locator('#generate').click();
+            await page.waitForFunction(()=>document.getElementById('summary')?.textContent.startsWith('ONE CLIPPING MASK'));
+            assert.equal(await page.locator('#download-json').isEnabled(),true);
+            const [secondDownload]=await Promise.all([page.waitForEvent('download'),page.locator('#download-json').click()]);
+            await secondDownload.saveAs(out);
+            const merged=JSON.parse(fs.readFileSync(out,'utf8'));
+            assert.equal(merged.slots[0].attachment,'clip');
+            assert.equal(merged.slots[1].name,'logo');
+            assert.ok(merged.animations.idle);
+            assert.equal(merged.skins[0].attachments[merged.slots[0].name].clip.end,'logo');
+            await page.locator('#reset').click();
+            await page.locator('#files').setInputFiles([
+              {name:'project.spine',mimeType:'application/octet-stream',buffer:Buffer.from([2,11,2,11])}
+            ]);
+            await page.locator('#generate').click();
+            await page.waitForFunction(()=>document.getElementById('status')?.textContent.includes('Binary .spine needs conversion'));
+            assert.equal(await page.locator('#download-json').isDisabled(),true);
+            assert.deepEqual(pageErrors,[]);
+            console.log('MASK_TOOL_BROWSER_E2E_PASS', {url,singleVertices:clip.vertexCount,mergedSlots:merged.slots.length});
+          } finally {await browser.close();}
+          NODE
+          node "$RUNNER_TEMP/mask-smoke/smoke.mjs"
       - name: Verify cloud animation API preflights
         shell: bash
         run: |
