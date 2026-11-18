@@ -210,7 +210,7 @@ jobs:
           try {
             const response=await page.goto(url,{waitUntil:'load',timeout:45000});
             assert.equal(response.status(),200,'Mask Tool page must return 200');
-            await page.waitForFunction(()=>document.getElementById('status')?.textContent.includes('Drop'),{timeout:30000});
+            await page.waitForFunction(()=>document.getElementById('status')?.textContent.includes('Open a Spine project'),{timeout:30000});
             const ui=await page.evaluate(()=>{
               const main=document.querySelector('.app-shell');
               const panels=document.querySelector('.panels');
