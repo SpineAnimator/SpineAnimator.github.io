@@ -186,6 +186,7 @@ jobs:
             const targetBase='https://spine-mask-native-gateway.vladyslavchaplygin.workers.dev';
             await page.route(targetBase+'/**',async route=>{
               const req=route.request(),u=new URL(req.url());
+              console.log('MOCK_GATEWAY_CALL',req.method(),u.pathname);
               const cors={
                 'Access-Control-Allow-Origin':'https://spineanimator.github.io',
                 'Access-Control-Allow-Methods':'GET,POST,PUT,OPTIONS',
@@ -206,7 +207,15 @@ jobs:
               await route.fulfill({status:404,headers:cors,body:'{}'});
             });
             await page.locator('#native-preview').click();
-            await page.waitForFunction(()=>document.getElementById('native-result')?.hidden===false,{timeout:25000});
+            try {
+              await page.waitForFunction(()=>document.getElementById('native-result')?.hidden===false,null,{timeout:20000});
+            } catch (err) {
+              console.log('NATIVE_BROWSER_DEBUG',{
+                message:await page.locator('#native-status').textContent(),
+                uploadedBytes:submittedZip?.length||0,errors:pageErrors
+              });
+              throw err;
+            }
             assert.ok(submittedZip,'native upload is missing');
             function entryAt(buf,offset){
               assert.equal(buf.readUInt32LE(offset),0x04034b50,'invalid ZIP local header');
