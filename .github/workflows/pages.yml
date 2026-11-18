@@ -434,19 +434,19 @@ jobs:
               return {count:x.commits,sourceUnmodified:x.original.includes('"idle"'),
                 slots:x.result.slots.map(x=>x.name),animations:!!x.result.animations?.idle,
                 clip:x.result.skins[0].attachments.auto_mask_word.clip,
-                hasOverlay:x.result.skins[0].attachments.auto_mask_overlay_word
-                  .auto_mask_overlay.path==='mask-overlay',
-                pngStart:(x.writes['mask-overlay.png']||'').slice(0,4)
-                  .split('').map(c=>c.charCodeAt(0)),
+                hasOverlay:!!x.result.skins[0].attachments.auto_mask_overlay_word,
+                uploadedOverlay:!!x.writes['mask-overlay.png'],
+                pngSent:!!x.expected?.some(f=>f.name==='mask-overlay.png'),
                 inputWasUsed:!!x.bytes['images/word.png']
               };
             });
             assert.equal(local.count,1,'only one roundtrip should commit');
-            assert.deepEqual(local.slots,['word','auto_mask_word','auto_mask_overlay_word']);
+            assert.deepEqual(local.slots,['auto_mask_word','word']);
             assert.equal(local.animations,true);
-            assert.equal(local.hasOverlay,true);
-            assert.equal(local.clip.end,'auto_mask_overlay_word');
-            assert.deepEqual(local.pngStart,[137,80,78,71]);
+            assert.equal(local.hasOverlay,false,'Unexpected extra overlay slot');
+            assert.equal(local.uploadedOverlay,false,'NDA texture must not be uploaded to native host');
+            assert.equal(local.pngSent,false,'The native result must contain JSON only');
+            assert.equal(local.clip.end,'word','Clipping must end at the original region');
             assert.equal(local.inputWasUsed,true);
             console.log('MASK_TOOL_LOCAL_EDITOR_ROUNDTRIP_PASS');
             assert.deepEqual(pageErrors,[]);
