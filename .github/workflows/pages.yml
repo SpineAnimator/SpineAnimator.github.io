@@ -352,6 +352,93 @@ jobs:
             await page.locator('#generate').click();
             await page.waitForFunction(()=>document.getElementById('status')?.textContent.includes('Binary .spine needs conversion'));
             assert.equal(await page.locator('#download-json').isDisabled(),true);
+            // Emulate ONLY the installed Chrome extension/native-host boundary,
+            // not a remote Spine Editor or user's NDA project. Real native host
+            // protocol is separately verified in Spine-Resize CI.
+            await page.evaluate(({png64})=>{
+              const skel={skeleton:{spine:'4.3.26'},bones:[{name:'root'}],
+                slots:[{name:'word',bone:'root',attachment:'word'}],
+                skins:[{name:'default',attachments:{
+                  word:{word:{type:'region',path:'word',width:112,height:56}}
+                }}],animations:{idle:{}}};
+              const jsonBytes=new TextEncoder().encode(JSON.stringify(skel));
+              const encode=data=>{let v='';for(const b of data)v+=String.fromCharCode(b);return btoa(v);};
+              const files={
+                'skeleton.json':encode(jsonBytes),
+                'images/word.png':png64
+              };
+              const sent={};
+              const fake={
+                bytes:files,writes:sent,commits:0,
+                original:JSON.stringify(skel),result:null,
+              };
+              window.__testLocalBridge=fake;
+              window.addEventListener('message',event=>{
+                const m=event.data;
+                if(event.source!==window||m?.channel!=='spine-mask-native-v1'||m.type!=='request')return;
+                let response={channel:m.channel,type:'response',id:m.id,ok:true};
+                try{
+                  switch(m.method){
+                    case 'ping':response.result={connected:true,protocol:'spinemask/1'};break;
+                    case 'open_project':
+                      response.result={open:true,connected:true,session:'test-session',
+                        source:'scene.json',sourceType:'.json',
+                        files:[
+                          {key:'skeleton.json',name:'skeleton.json',size:jsonBytes.length},
+                          {key:'images/word.png',name:'word.png',size:atob(png64).length}
+                        ]};break;
+                    case 'read_chunk':{
+                      const decoded=atob(files[m.params.key]);
+                      const offset=m.params.offset;
+                      const chunk=decoded.slice(offset,offset+96000);
+                      response.result={key:m.params.key,offset,total:decoded.length,
+                        base64:btoa(chunk),done:offset+chunk.length>=decoded.length};
+                      break;
+                    }
+                    case 'begin_result':
+                      fake.expected=m.params.files;
+                      response.result={stage:'test-output',status:'receiving'};break;
+                    case 'write_chunk':{
+                      const n=m.params.name,p=m.params,prev=sent[n]||'';
+                      if(p.offset!==prev.length)throw Error('Invalid write offset');
+                      sent[n]=prev+atob(p.base64);
+                      response.result={written:sent[n].length,name:n};break;
+                    }
+                    case 'commit_result':
+                      fake.commits++;
+                      fake.result=JSON.parse(sent['mask.json']);
+                      response.result={saved:true,imported:true,opened:true,
+                        project:'scene-mask.spine'};break;
+                    default:throw Error('Unexpected native call');
+                  }
+                }catch(error){response={...response,ok:false,error:String(error)};}
+                queueMicrotask(()=>window.postMessage(response,location.origin));
+              });
+            },{png64});
+            await page.locator('#bridge-refresh').click();
+            await page.waitForFunction(()=>
+              document.querySelector('#bridge-status')?.textContent.includes('Mask applied'),
+              null,{timeout:45000});
+            const local=await page.evaluate(()=>{
+              const x=window.__testLocalBridge;
+              return {count:x.commits,sourceUnmodified:x.original.includes('"idle"'),
+                slots:x.result.slots.map(x=>x.name),animations:!!x.result.animations?.idle,
+                clip:x.result.skins[0].attachments.auto_mask_word.clip,
+                hasOverlay:x.result.skins[0].attachments.auto_mask_overlay_word
+                  .auto_mask_overlay.path==='mask-overlay',
+                pngStart:(x.writes['mask-overlay.png']||'').slice(0,4)
+                  .split('').map(c=>c.charCodeAt(0)),
+                inputWasUsed:!!x.bytes['images/word.png']
+              };
+            });
+            assert.equal(local.count,1,'only one roundtrip should commit');
+            assert.deepEqual(local.slots,['word','auto_mask_word','auto_mask_overlay_word']);
+            assert.equal(local.animations,true);
+            assert.equal(local.hasOverlay,true);
+            assert.equal(local.clip.end,'auto_mask_overlay_word');
+            assert.deepEqual(local.pngStart,[137,80,78,71]);
+            assert.equal(local.inputWasUsed,true);
+            console.log('MASK_TOOL_LOCAL_EDITOR_ROUNDTRIP_PASS');
             assert.deepEqual(pageErrors,[]);
             console.log('MASK_TOOL_BROWSER_E2E_PASS', {url,singleVertices:clip.vertexCount,mergedSlots:merged.slots.length});
           } finally {await browser.close();}
