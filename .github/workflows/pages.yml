@@ -82,6 +82,28 @@ jobs:
           assert.equal(localRerun.clippingSlot,out.slot);
           assert.equal(JSON.stringify(out.json),once,'regeneration mutated input JSON');
           console.log('MASK_TOOL_IDEMPOTENT_CLIP_PASS');
+          const legacy=JSON.parse(JSON.stringify(out.json));
+          legacy.slots.push({name:'hotspot',bone:'root',attachment:'hotspot'});
+          legacy.skins[0].attachments.hotspot={hotspot:{
+            type:'region',path:'hotspot',width:16,height:16
+          }};
+          legacy.skins[0].attachments[out.slot].clip.end='hotspot';
+          legacy.animations.idle.slots={hotspot:{attachment:[{name:'hotspot'}]}};
+          const legacySnapshot=JSON.stringify(legacy);
+          const corrected=exportLocalEditorMask(
+            legacy,availableRegions(legacy).find(x=>x.slot==='image'),r.points,w,h
+          );
+          assert.equal(corrected.json.slots.length,3,
+            'legacy clip repair added extra slots');
+          assert.equal(corrected.json.skins[0].attachments[out.slot].clip.end,'image',
+            'legacy clipping still captures hotspot');
+          assert.ok(corrected.json.skins[0].attachments.hotspot.hotspot,
+            'independent hotspot attachment was lost');
+          assert.deepEqual(corrected.json.animations.idle.slots.hotspot,
+            legacy.animations.idle.slots.hotspot,
+            'artist hotspot animation keys changed');
+          assert.equal(JSON.stringify(legacy),legacySnapshot,'source was mutated');
+          console.log('MASK_TOOL_LEGACY_HOTSPOT_CLIP_REPAIR_PASS');
           const html=fs.readFileSync('Spine-Mask-Tool/index.html','utf8');
           const app=fs.readFileSync('Spine-Mask-Tool/app.js','utf8');
           assert.ok(html.includes('id="image-source"'), 'missing image picker');
