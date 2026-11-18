@@ -56,6 +56,9 @@ jobs:
           assert.equal(r.stats.shapes,3);
           assert.equal(r.stats.bridges,2);
           assert.equal(r.stats.slits,3);
+          assert.ok(r.stats.mobileQualityPassed,'legacy mask must remain valid');
+          assert.ok(r.stats.vertices<=240,'30-skeleton budget exceeded');
+          assert.ok(r.stats.totalSceneClippingVertices<=7200,'aggregate 30-skeleton budget exceeded');
           const original={skeleton:{spine:'4.3.26'},bones:[{name:'root'}],
             slots:[{name:'image',bone:'root',attachment:'image'}],
             skins:[{name:'default',attachments:{image:{
@@ -89,6 +92,13 @@ jobs:
           const all=imageMask({width:sw,height:sh,data:gold},{highlightFaces:false});
           const goldPixel=(x,y)=>y*sw+x;
           assert.equal(faces.stats.highlightApplied,true,'automatic light segmentation not applied');
+          assert.equal(faces.stats.concurrentSkeletons,30);
+          assert.ok(faces.stats.mobileQualityPassed,'highlight mobile quality gate failed');
+          assert.ok(faces.stats.vertices<=240);
+          assert.ok(faces.stats.totalSceneClippingVertices<=7200);
+          assert.ok(faces.stats.darkLeakPercent<=3);
+          assert.ok(faces.stats.missingLightPercent<=7);
+          assert.equal(faces.stats.innerHolesPreserved,true);
           assert.equal(faces.visibleAlpha[goldPixel(5,9)],0,'dark shadow leaked');
           assert.equal(faces.visibleAlpha[goldPixel(10,15)],255,'bright face missing');
           assert.equal(faces.visibleAlpha[goldPixel(84,28)],0,'inner O opening lost');
