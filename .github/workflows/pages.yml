@@ -43,7 +43,7 @@ jobs:
           import assert from 'node:assert/strict';
           import fs from 'node:fs';
           const source=fs.readFileSync('Spine-Mask-Tool/core.js','utf8');
-          const {imageMask,availableRegions,exportJson} =
+          const {imageMask,availableRegions,exportJson,exportLocalEditorMask} =
             await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
           const w=112,h=56,rgba=new Uint8ClampedArray(w*h*4);
           function pixel(x,y){rgba[(y*w+x)*4+3]=255;}
@@ -72,6 +72,16 @@ jobs:
           assert.equal(out.json.skins[0].attachments[out.slot].clip.end,'image');
           assert.equal(out.json.skins[0].attachments[out.slot].clip.vertexCount,r.stats.vertices);
           assert.ok(out.json.animations.idle);
+          const once=JSON.stringify(out.json);
+          const rerun=exportJson(out.json,availableRegions(out.json)[0],r.points,w,h);
+          assert.equal(rerun.json.slots.length,2,'regenerating mask duplicated a slot');
+          assert.equal(rerun.slot,out.slot,'regenerating mask changed the clipping slot');
+          assert.ok(rerun.json.animations.idle,'regeneration removed animation');
+          const localRerun=exportLocalEditorMask(out.json,availableRegions(out.json)[0],r.points,w,h);
+          assert.equal(localRerun.json.slots.length,2,'native regeneration duplicated clipping');
+          assert.equal(localRerun.clippingSlot,out.slot);
+          assert.equal(JSON.stringify(out.json),once,'regeneration mutated input JSON');
+          console.log('MASK_TOOL_IDEMPOTENT_CLIP_PASS');
           const html=fs.readFileSync('Spine-Mask-Tool/index.html','utf8');
           const app=fs.readFileSync('Spine-Mask-Tool/app.js','utf8');
           assert.ok(html.includes('id="image-source"'), 'missing image picker');
