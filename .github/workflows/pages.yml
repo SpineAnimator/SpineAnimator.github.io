@@ -155,7 +155,7 @@ jobs:
           curl --fail --silent --show-error --location \
             --retry 8 --retry-delay 4 --retry-all-errors --max-time 15 \
             "https://spineanimator.github.io/Spine-Mask-Tool/" -o "$RUNNER_TEMP/mask-tool.html"
-          grep -Fq 'One image. One mask.' "$RUNNER_TEMP/mask-tool.html"
+          grep -Fq '<main class="app-shell">' "$RUNNER_TEMP/mask-tool.html"
           for asset in app.js core.js; do
             curl --fail --silent --show-error --location \
               --retry 8 --retry-delay 4 --retry-all-errors --max-time 15 \
@@ -193,6 +193,23 @@ jobs:
             const response=await page.goto(url,{waitUntil:'load',timeout:45000});
             assert.equal(response.status(),200,'Mask Tool page must return 200');
             await page.waitForFunction(()=>document.getElementById('status')?.textContent.includes('Drop'),{timeout:30000});
+            const ui=await page.evaluate(()=>{
+              const main=document.querySelector('.app-shell');
+              const panels=document.querySelector('.panels');
+              const preview=document.querySelector('.preview-panel');
+              const controls=document.querySelector('.control-panel');
+              const css=getComputedStyle(document.body);
+              return {
+                checker:css.backgroundImage.includes('linear-gradient'),
+                dark:css.backgroundColor==='rgb(26, 26, 26)',
+                columns:getComputedStyle(panels).gridTemplateColumns.split(' ').length,
+                order:preview.getBoundingClientRect().left<controls.getBoundingClientRect().left,
+                square:getComputedStyle(document.querySelector('#generate')).borderRadius==='0px',
+                shell:main!==null
+              };
+            });
+            assert.deepEqual(ui,{checker:true,dark:true,columns:2,order:true,square:true,shell:true});
+            console.log('MASK_TOOL_SPINE_RESIZE_LAYOUT_PASS');
             const png64=await page.evaluate(()=>{
               const c=document.createElement('canvas');c.width=112;c.height=56;
               const ctx=c.getContext('2d');
