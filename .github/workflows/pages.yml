@@ -347,15 +347,17 @@ jobs:
             const [packageDownload]=await Promise.all([
               page.waitForEvent('download'),page.locator('#download-spine-zip').click()
             ]);
-            const savedZip=path.join(os.tmpdir(),'mask-bridgeless-spine.zip');
+            const savedZip=path.join(os.tmpdir(),'mask-complete-spine.zip');
             await packageDownload.saveAs(savedZip);
             const saved=fs.readFileSync(savedZip);
             const downloadedScene=entryAt(saved,0);
             const downloadedFill=entryAt(saved,downloadedScene.next);
-            assert.equal(downloadedScene.name,'scene.json');
-            assert.equal(downloadedFill.name,'images/fill.png');
+            assert.equal(downloadedScene.name,'image-mask.json');
+            assert.equal(downloadedFill.name,'images/image.png');
             assert.ok(downloadedFill.content.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])));
-            console.log('MASK_TOOL_BRIDGELESS_ZIP_DOWNLOAD_PASS');
+            const preservedScene=JSON.parse(downloadedScene.content.toString('utf8'));
+            assert.ok(preservedScene.slots.some(slot=>slot.name.startsWith('auto_mask_')));
+            console.log('MASK_TOOL_FULL_SPINE_PROJECT_ZIP_PASS');
             const nativeScene=JSON.parse(one.content.toString());
             assert.equal(nativeScene.skins[0].attachments.mask.clip.type,'clipping');
             assert.equal(nativeScene.skins[0].attachments.mask.clip.end,'fill');
@@ -391,13 +393,14 @@ jobs:
             assert.ok(merged.animations.idle);
             assert.equal(merged.skins[0].attachments[merged.slots[0].name].clip.end,'logo');
             // Project/import controls must actually open a chooser and parse compressed ZIPs.
-            for(const selector of ['#open-project','#open-folder','#open-editor','#bridge-install'])
+            for(const selector of ['#open-project','#open-folder','#open-editor','#bridge-choose','#bridge-install'])
               assert.equal(await page.locator(selector).isVisible(),true,selector+' is not usable');
             assert.ok((await page.locator('#bridge-install').getAttribute('href')).includes('/Spine-Mask-Resize-Bridge.zip'));
             const fixtureFolder=fs.mkdtempSync(path.join(os.tmpdir(),'mask-project-import-'));
             fs.mkdirSync(path.join(fixtureFolder,'images'));
             fs.writeFileSync(path.join(fixtureFolder,'skeleton.json'),JSON.stringify(skel));
             fs.writeFileSync(path.join(fixtureFolder,'images/word.png'),png);
+            fs.writeFileSync(path.join(fixtureFolder,'images/hotspot.png'),png);
             fs.writeFileSync(path.join(fixtureFolder,'metadata.json'),JSON.stringify({kind:'not-a-spine-skeleton'}));
             const archivePath=path.join(os.tmpdir(),'spine-mask-import-fixture.zip');
             execFileSync('python3',['-c',
@@ -417,12 +420,34 @@ jobs:
             await page.waitForFunction(()=>document.getElementById('summary')?.textContent.startsWith('ONE CLIPPING MASK'));
             assert.equal(await page.locator('#download-json').isEnabled(),true);
             console.log('MASK_TOOL_PROJECT_FOLDER_IMPORT_PASS');
+            const [completeDownload]=await Promise.all([
+              page.waitForEvent('download'),page.locator('#download-spine-zip').click()
+            ]);
+            const completePath=path.join(os.tmpdir(),'mask-with-hotspot.zip');
+            await completeDownload.saveAs(completePath);
+            const fullBytes=fs.readFileSync(completePath);
+            const entries=[];let cursor=0;
+            while(cursor+4<fullBytes.length&&fullBytes.readUInt32LE(cursor)===0x04034b50){
+              const entry=entryAt(fullBytes,cursor);
+              entries.push(entry);cursor=entry.next;
+            }
+            const names=entries.map(entry=>entry.name);
+            assert.ok(names.some(name=>name.endsWith('-mask.json')));
+            assert.ok(names.includes('images/word.png'));
+            assert.ok(names.includes('images/hotspot.png'),'Unbound animator hotspot texture was lost');
+            assert.ok(entries.find(entry=>entry.name==='images/hotspot.png').content.equals(png));
+            const projectEntry=entries.find(entry=>entry.name.endsWith('-mask.json'));
+            const projectJson=JSON.parse(projectEntry.content.toString('utf8'));
+            assert.ok(projectJson.animations.idle,'Source animation was lost from ZIP');
+            assert.equal(projectJson.slots[1].name,'logo','Original Spine slots were lost');
+            console.log('MASK_TOOL_UNBOUND_IMAGE_AND_ANIMATIONS_PRESERVED_PASS');
+
             await page.locator('#reset').click();
             await page.locator('#files').setInputFiles([
               {name:'project.spine',mimeType:'application/octet-stream',buffer:Buffer.from([2,11,2,11])}
             ]);
             await page.locator('#generate').click();
-            await page.waitForFunction(()=>document.getElementById('status')?.textContent.includes('Binary .spine needs conversion'));
+            await page.waitForFunction(()=>document.getElementById('status')?.textContent.includes('Native Spine conversion:'));
             assert.equal(await page.locator('#download-json').isDisabled(),true);
             // Emulate ONLY the installed Chrome extension/native-host boundary,
             // not a remote Spine Editor or user's NDA project. Real native host
