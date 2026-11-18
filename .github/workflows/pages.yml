@@ -181,6 +181,19 @@ jobs:
             const clip=single.skins[0].attachments[newSlot.name].clip;
             assert.equal(clip.type,'clipping');assert.equal(clip.end,'image');
             assert.ok(clip.vertexCount>10);assert.equal(clip.vertices.length,clip.vertexCount*2);
+            // No rendering may use the connector/slit pixels as visible coverage.
+            const previewAlpha=await page.locator('#preview').evaluate(el=>{
+              const c=el.getContext('2d'),rgba=c.getImageData(0,0,el.width,el.height).data;
+              const pixel=(x,y)=>rgba[(y*el.width+x)*4+3];
+              return {gap:pixel(48,28),bHole:pixel(20,17),oHole:pixel(76,28),
+                b:pixel(10,10),o:pixel(60,10),dot:pixel(107,2)};
+            });
+            assert.equal(previewAlpha.gap,0,'Invisible bridge leaked into browser preview');
+            assert.equal(previewAlpha.bHole,0,'B hole became opaque');
+            assert.equal(previewAlpha.oHole,0,'O hole became opaque');
+            assert.ok(previewAlpha.b>0&&previewAlpha.o>0&&previewAlpha.dot>0);
+            assert.equal(await page.locator('#download-spine-zip').isEnabled(),true);
+            console.log('MASK_TOOL_INVISIBLE_PREVIEW_PASS');
             assert.equal(await page.locator('#native-preview').isEnabled(),true);
             let submittedZip=null;
             const targetBase='https://spine-mask-native-gateway.vladyslavchaplygin.workers.dev';
@@ -228,6 +241,23 @@ jobs:
             assert.equal(one.name,'scene.json');
             assert.equal(two.name,'images/fill.png');
             assert.ok(two.content.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])));
+            const fillAlpha=await page.evaluate(async encoded=>{
+              const raw=atob(encoded),input=new Uint8Array(raw.length);
+              for(let i=0;i<raw.length;i++)input[i]=raw.charCodeAt(i);
+              const bitmap=await createImageBitmap(new Blob([input],{type:'image/png'}));
+              const c=document.createElement('canvas');c.width=bitmap.width;c.height=bitmap.height;
+              const context=c.getContext('2d');context.drawImage(bitmap,0,0);
+              const data=context.getImageData(0,0,c.width,c.height).data;
+              const alpha=(x,y)=>data[(y*c.width+x)*4+3];
+              return {gap:alpha(48,28),bHole:alpha(20,17),oHole:alpha(76,28),
+                left:alpha(10,10),right:alpha(60,10)};
+            },two.content.toString('base64'));
+            assert.equal(fillAlpha.gap,0,'Uploaded Spine texture contains bridge pixels');
+            assert.equal(fillAlpha.bHole,0);
+            assert.equal(fillAlpha.oHole,0);
+            assert.ok(fillAlpha.left>0&&fillAlpha.right>0,'Both visible letters must survive');
+            console.log('MASK_TOOL_INVISIBLE_NATIVE_TEXTURE_PASS');
+
             const nativeScene=JSON.parse(one.content.toString());
             assert.equal(nativeScene.skins[0].attachments.mask.clip.type,'clipping');
             assert.equal(nativeScene.skins[0].attachments.mask.clip.end,'fill');
