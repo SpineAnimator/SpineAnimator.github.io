@@ -74,6 +74,32 @@ jobs:
           assert.ok(html.includes('id="image-source"'), 'missing image picker');
           assert.ok(app.includes('Binary .spine needs conversion'), 'binary import must fail closed');
           console.log('MASK_TOOL_GEOMETRY_AND_EXPORT_PASS', r.stats);
+          // Synthetic gold logo-like faces and brown extrusion: exactly one
+          // clip, dark brown excluded, original visible alpha kept, holes kept.
+          const sw=118,sh=68,gold=new Uint8ClampedArray(sw*sh*4);
+          function shade(x,y,red,green,blue){
+            const p=(y*sw+x)*4;gold[p]=red;gold[p+1]=green;gold[p+2]=blue;gold[p+3]=255;
+          }
+          for(let y=8;y<57;y++)for(let x=5;x<53;x++)shade(x,y,86,31,6);
+          for(let y=12;y<50;y++)for(let x=9;x<48;x++)shade(x,y,255,177,18);
+          for(let y=9;y<56;y++)for(let x=65;x<113;x++)shade(x,y,93,34,5);
+          for(let y=14;y<48;y++)for(let x=69;x<108;x++)
+            if(!(x>81&&x<95&&y>23&&y<38))shade(x,y,249,190,32);
+          const faces=imageMask({width:sw,height:sh,data:gold},{highlightFaces:true});
+          const all=imageMask({width:sw,height:sh,data:gold},{highlightFaces:false});
+          const pixel=(x,y)=>y*sw+x;
+          assert.equal(faces.stats.highlightApplied,true,'automatic light segmentation not applied');
+          assert.equal(faces.visibleAlpha[pixel(5,9)],0,'dark shadow leaked');
+          assert.equal(faces.visibleAlpha[pixel(10,15)],255,'bright face missing');
+          assert.equal(faces.visibleAlpha[pixel(84,28)],0,'inner O opening lost');
+          assert.equal(faces.visibleAlpha[pixel(58,20)],0,'routing bridge became visible');
+          assert.equal(all.visibleAlpha[pixel(5,9)],255,'OFF mode must retain full silhouette');
+          assert.ok(faces.points.length>=4,'missing single clipping polygon');
+          assert.ok(html.includes('id="highlight-edges"'),'agent checkbox absent');
+          assert.ok(!html.includes('type="range"'),'manual slider still published');
+          assert.ok(app.includes('SpineMaskAgentControl'),'agent API absent');
+          console.log('MASK_TOOL_AUTO_LIGHT_FACE_PASS',faces.stats);
+
           NODE
           git ls-files --error-unmatch .nojekyll README.md app.js index.html .github/workflows/pages.yml Spine-Mask-Tool/core.js Spine-Mask-Tool/app.js Spine-Mask-Tool/index.html >/dev/null
           test "$(git ls-files | wc -l)" -eq 8 || { echo "::error::Unsafe extra file in public Pages repository"; exit 1; }
@@ -219,6 +245,21 @@ jobs:
               }
               await route.fulfill({status:404,headers:cors,body:'{}'});
             });
+            assert.equal(await page.locator('#highlight-edges').isChecked(),true);
+            assert.equal(await page.locator('input[type=range]').count(),0);
+            const agent=await page.evaluate(()=>{
+              const api=window.SpineMaskAgentControl;
+              if(!api)return {ready:false};
+              const before=api.getHighlightEdges();
+              api.setHighlightEdges(false);
+              const off=api.getHighlightEdges();
+              api.setHighlightEdges(true);
+              const on=api.getHighlightEdges();
+              return {ready:true,before,off,on};
+            });
+            assert.deepEqual(agent,{ready:true,before:true,off:false,on:true});
+            await page.waitForFunction(()=>!document.querySelector('#generate').disabled,{timeout:30000});
+            console.log('MASK_TOOL_AGENT_CHECKBOX_PASS');
             await page.locator('#native-preview').click();
             try {
               await page.waitForFunction(()=>document.getElementById('native-result')?.hidden===false,null,{timeout:20000});
