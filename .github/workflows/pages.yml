@@ -141,27 +141,44 @@ jobs:
             https://spineanimator.github.io/|https://spineanimator.github.io) ;;
             *) echo "::error::Unexpected Pages origin: $PUBLIC_PAGE_URL"; exit 1 ;;
           esac
-          curl --fail --silent --show-error --location \
-            --retry 8 --retry-delay 4 --retry-all-errors --max-time 15 \
-            "https://spineanimator.github.io/" -o "$RUNNER_TEMP/published-index.html"
-          grep -Fq 'SPINE ANIMATOR' "$RUNNER_TEMP/published-index.html"
-          grep -Fq 'src="./app.js"' "$RUNNER_TEMP/published-index.html"
-          grep -Fq '<span class="version">v.1.4.2</span>' "$RUNNER_TEMP/published-index.html"
-          curl --fail --silent --show-error --location \
-            --retry 8 --retry-delay 4 --retry-all-errors --max-time 15 \
-            "https://spineanimator.github.io/app.js" -o "$RUNNER_TEMP/published-app.js"
-          node --check "$RUNNER_TEMP/published-app.js"
-          grep -Fq 'Cloud animation in progress' "$RUNNER_TEMP/published-app.js"
-          curl --fail --silent --show-error --location \
-            --retry 8 --retry-delay 4 --retry-all-errors --max-time 15 \
-            "https://spineanimator.github.io/Spine-Mask-Tool/" -o "$RUNNER_TEMP/mask-tool.html"
-          grep -Fq '<main class="app-shell">' "$RUNNER_TEMP/mask-tool.html"
-          for asset in app.js core.js; do
-            curl --fail --silent --show-error --location \
-              --retry 8 --retry-delay 4 --retry-all-errors --max-time 15 \
-              "https://spineanimator.github.io/Spine-Mask-Tool/$asset" -o "$RUNNER_TEMP/mask-$asset"
-            node --input-type=module --check < "$RUNNER_TEMP/mask-$asset"
+          # Pages CDN may still serve an older deployment immediately after
+          # deploy-pages reports success. Retry CONTENT verification, not only
+          # HTTP failures, and print a useful diagnostic on final failure.
+          verify_live_content() {
+            curl -fLsS --max-time 15 \
+              "https://spineanimator.github.io/?check=$GITHUB_SHA" \
+              -o "$RUNNER_TEMP/published-index.html" || return 1
+            grep -Fq 'SPINE ANIMATOR' "$RUNNER_TEMP/published-index.html" || return 1
+            grep -Fq 'src="./app.js"' "$RUNNER_TEMP/published-index.html" || return 1
+            grep -Fq '<span class="version">v.1.4.2</span>' "$RUNNER_TEMP/published-index.html" || return 1
+            curl -fLsS --max-time 15 \
+              "https://spineanimator.github.io/app.js?check=$GITHUB_SHA" \
+              -o "$RUNNER_TEMP/published-app.js" || return 1
+            node --check "$RUNNER_TEMP/published-app.js" || return 1
+            grep -Fq 'Cloud animation in progress' "$RUNNER_TEMP/published-app.js" || return 1
+            curl -fLsS --max-time 15 \
+              "https://spineanimator.github.io/Spine-Mask-Tool/?check=$GITHUB_SHA" \
+              -o "$RUNNER_TEMP/mask-tool.html" || return 1
+            grep -Fq '<main class="app-shell">' "$RUNNER_TEMP/mask-tool.html" || return 1
+            for asset in app.js core.js; do
+              curl -fLsS --max-time 15 \
+                "https://spineanimator.github.io/Spine-Mask-Tool/$asset?check=$GITHUB_SHA" \
+                -o "$RUNNER_TEMP/mask-$asset" || return 1
+              node --input-type=module --check < "$RUNNER_TEMP/mask-$asset" || return 1
+            done
+            return 0
+          }
+          VERIFIED=0
+          for attempt in $(seq 1 12); do
+            if verify_live_content; then VERIFIED=1; break; fi
+            echo "Pages public content has not converged (attempt $attempt/12)"
+            sleep 5
           done
+          if [ "$VERIFIED" != 1 ]; then
+            echo "::error::Pages public content verification failed after propagation retries"
+            echo "Published index bytes: $(wc -c < "$RUNNER_TEMP/published-index.html" 2>/dev/null || echo unavailable)"
+            exit 1
+          fi
           echo "LIVE_PAGES_HTML_AND_JS_PASS $PUBLIC_PAGE_URL" >> "$GITHUB_STEP_SUMMARY"
           echo "LIVE_SPINE_MASK_TOOL_PASS https://spineanimator.github.io/Spine-Mask-Tool/" >> "$GITHUB_STEP_SUMMARY"
 
