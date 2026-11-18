@@ -258,6 +258,18 @@ jobs:
             assert.ok(fillAlpha.left>0&&fillAlpha.right>0,'Both visible letters must survive');
             console.log('MASK_TOOL_INVISIBLE_NATIVE_TEXTURE_PASS');
 
+            const [packageDownload]=await Promise.all([
+              page.waitForEvent('download'),page.locator('#download-spine-zip').click()
+            ]);
+            const savedZip=path.join(os.tmpdir(),'mask-bridgeless-spine.zip');
+            await packageDownload.saveAs(savedZip);
+            const saved=fs.readFileSync(savedZip);
+            const downloadedScene=entryAt(saved,0);
+            const downloadedFill=entryAt(saved,downloadedScene.next);
+            assert.equal(downloadedScene.name,'scene.json');
+            assert.equal(downloadedFill.name,'images/fill.png');
+            assert.ok(downloadedFill.content.subarray(0,8).equals(Buffer.from([137,80,78,71,13,10,26,10])));
+            console.log('MASK_TOOL_BRIDGELESS_ZIP_DOWNLOAD_PASS');
             const nativeScene=JSON.parse(one.content.toString());
             assert.equal(nativeScene.skins[0].attachments.mask.clip.type,'clipping');
             assert.equal(nativeScene.skins[0].attachments.mask.clip.end,'fill');
