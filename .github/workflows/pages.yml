@@ -42,6 +42,7 @@ jobs:
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import fs from 'node:fs';
+          import { execFileSync } from 'node:child_process';
           const source=fs.readFileSync('Spine-Mask-Tool/core.js','utf8');
           const {imageMask,availableRegions,exportJson} =
             await import('data:text/javascript;base64,'+Buffer.from(source).toString('base64'));
@@ -389,6 +390,33 @@ jobs:
             assert.equal(merged.slots[1].name,'logo');
             assert.ok(merged.animations.idle);
             assert.equal(merged.skins[0].attachments[merged.slots[0].name].clip.end,'logo');
+            // Project/import controls must actually open a chooser and parse compressed ZIPs.
+            for(const selector of ['#open-project','#open-folder','#open-editor','#bridge-install'])
+              assert.equal(await page.locator(selector).isVisible(),true,selector+' is not usable');
+            assert.ok((await page.locator('#bridge-install').getAttribute('href')).includes('/Spine-Mask-Resize-Bridge.zip'));
+            const fixtureFolder=fs.mkdtempSync(path.join(os.tmpdir(),'mask-project-import-'));
+            fs.mkdirSync(path.join(fixtureFolder,'images'));
+            fs.writeFileSync(path.join(fixtureFolder,'skeleton.json'),JSON.stringify(skel));
+            fs.writeFileSync(path.join(fixtureFolder,'images/word.png'),png);
+            fs.writeFileSync(path.join(fixtureFolder,'metadata.json'),JSON.stringify({kind:'not-a-spine-skeleton'}));
+            const archivePath=path.join(os.tmpdir(),'spine-mask-import-fixture.zip');
+            execFileSync('python3',['-c',
+              'import zipfile,sys,pathlib;root=pathlib.Path(sys.argv[1]);z=zipfile.ZipFile(sys.argv[2],"w",zipfile.ZIP_DEFLATED);[(z.write(f,str(f.relative_to(root)))) for f in root.rglob("*") if f.is_file()];z.close()',
+              fixtureFolder,archivePath]);
+            await page.locator('#reset').click();
+            const [fileDialog]=await Promise.all([
+              page.waitForEvent('filechooser'),page.locator('#open-project').click()
+            ]);
+            assert.equal(fileDialog.isMultiple(),true);
+            await fileDialog.setFiles(archivePath);
+            await page.waitForFunction(()=>document.getElementById('summary')?.textContent.startsWith('ONE CLIPPING MASK'));
+            assert.ok((await page.locator('#source-name').textContent()).includes('word.png'));
+            assert.equal(await page.locator('#download-json').isEnabled(),true);
+            console.log('MASK_TOOL_COMPRESSED_ZIP_IMPORT_PASS');
+            await page.locator('#project-folder').setInputFiles(fixtureFolder);
+            await page.waitForFunction(()=>document.getElementById('summary')?.textContent.startsWith('ONE CLIPPING MASK'));
+            assert.equal(await page.locator('#download-json').isEnabled(),true);
+            console.log('MASK_TOOL_PROJECT_FOLDER_IMPORT_PASS');
             await page.locator('#reset').click();
             await page.locator('#files').setInputFiles([
               {name:'project.spine',mimeType:'application/octet-stream',buffer:Buffer.from([2,11,2,11])}
@@ -459,7 +487,7 @@ jobs:
                 queueMicrotask(()=>window.postMessage(response,location.origin));
               });
             },{png64});
-            await page.locator('#bridge-refresh').click();
+            await page.locator('#open-editor').click(); // top-level editor action uses the same native bridge
             await page.waitForFunction(()=>
               document.querySelector('#bridge-status')?.textContent.includes('Mask applied'),
               null,{timeout:45000});
