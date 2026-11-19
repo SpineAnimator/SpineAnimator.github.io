@@ -520,7 +520,7 @@ jobs:
                 let response={channel:m.channel,type:'response',id:m.id,ok:true};
                 try{
                   switch(m.method){
-                    case 'ping':response.result={connected:true,protocol:'spinemask/1'};break;
+                    case 'ping':if(fake.offline)throw Error('native host disconnected');response.result={connected:true,protocol:'spinemask/1'};break;
                     case 'open_project':
                       response.result={open:true,connected:true,session:'test-session',
                         source:'scene.json',sourceType:'.json',
@@ -580,6 +580,20 @@ jobs:
             assert.equal(local.clip.end,'word','Clipping must end at the original region');
             assert.equal(local.inputWasUsed,true);
             console.log('MASK_TOOL_LOCAL_EDITOR_ROUNDTRIP_PASS');
+            // Simple installer is hidden only after a confirmed native ping,
+            // then shown again if the extension/native host disconnects.
+            await page.locator('#agent-toggle').click();
+            await page.waitForFunction(()=>!document.body.classList.contains('agent-mode'));
+            assert.equal(await page.locator('#quick-install-bridge').isHidden(),true,
+              'Installer must disappear after verified Bridge connection');
+            assert.equal(await page.locator('#quick-from-spine').isVisible(),true);
+            await page.evaluate(()=>{window.__testLocalBridge.offline=true;});
+            await page.locator('#quick-from-spine').click();
+            await page.waitForFunction(()=>document.getElementById('quick-install-bridge')?.hidden===false,
+              null,{timeout:15000});
+            assert.equal(await page.locator('#quick-install-bridge').isVisible(),true,
+              'Installer must reappear after Bridge disconnect');
+            console.log('MASK_SIMPLE_BRIDGE_INSTALL_LIFECYCLE_PASS');
             assert.deepEqual(pageErrors,[]);
             console.log('MASK_TOOL_BROWSER_E2E_PASS', {url,singleVertices:clip.vertexCount,mergedSlots:merged.slots.length});
           } finally {await browser.close();}
