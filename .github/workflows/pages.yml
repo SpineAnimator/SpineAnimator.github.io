@@ -553,7 +553,7 @@ jobs:
             // checks that one multi-object clipping mask is committed and opened.
             await page.evaluate(({png64})=>{
               const skel={skeleton:{spine:'4.3.26',width:124,height:64,images:'./images/'},
-                bones:[{name:'root'},{name:'left',parent:'root',x:-30},{name:'right',parent:'root',x:30}],
+                bones:[{name:'root'},{name:'left',parent:'root',x:-30,rotation:9,scaleX:1.05,scaleY:0.95,shearX:3},{name:'right',parent:'root',x:30,rotation:-7,scaleX:0.95,scaleY:1.05,shearY:-2}],
                 slots:[
                   {name:'image_a',bone:'left',attachment:'partA'},
                   {name:'image_b',bone:'right',attachment:'partB'},
@@ -563,7 +563,7 @@ jobs:
                   image_a:{partA:{type:'region',path:'part-a',width:48,height:48}},
                   image_b:{partB:{type:'region',path:'part-b',width:48,height:48}},
                   hotspot:{hotspot:{type:'region',path:'hotspot',width:8,height:8}}
-                }}],animations:{idle:{}}};
+                }}],animations:{idle:{bones:{left:{rotate:[{time:0,angle:0},{time:1,angle:25}]},right:{rotate:[{time:0,angle:0},{time:1,angle:-25}]}}}}};
               const jsonBytes=new TextEncoder().encode(JSON.stringify(skel));
               const encode=data=>{let v='';for(const b of data)v+=String.fromCharCode(b);return btoa(v);};
               const files={
@@ -639,9 +639,13 @@ jobs:
               const x=window.__testLocalBridge,clips=x.result.skins.flatMap(s=>Object.values(s.attachments))
                 .flatMap(slot=>Object.values(slot)).filter(a=>a?.type==='clipping');
               const maskSlot=x.result.slots.find(s=>s.name==='auto_mask_multi');
+              const vertices=clips[0]?.vertices||[],count=clips[0]?.vertexCount||0;
+              const boneIndices=[...new Set(Array.from({length:count},(_,i)=>vertices[i*5+1]))].sort();
               return {count:x.commits,sourceUnmodified:x.original.includes('"idle"'),
                 slots:x.result.slots.map(s=>s.name),animations:!!x.result.animations?.idle,
                 clip:clips[0],clipCount:clips.length,clipBone:maskSlot?.bone,
+                weighted:vertices.length===count*5&&Array.from({length:count},(_,i)=>vertices[i*5]===1&&vertices[i*5+4]===1).every(Boolean),
+                boneIndices,
                 hotspot:!!x.result.skins[0].attachments.hotspot?.hotspot,
                 writes:Object.keys(x.writes),expected:x.expected?.map(f=>f.name)||[],
                 opened:!!x.result};
@@ -651,6 +655,8 @@ jobs:
             assert.equal(local.animations,true,'Source animation was lost');
             assert.equal(local.clipCount,1,'Exactly one clipping attachment must be sent to Spine');
             assert.equal(local.clipBone,'root','Combined mask must use the common parent bone');
+            assert.equal(local.weighted,true,'Clipping vertices must be weighted to their animated source bones');
+            assert.deepEqual(local.boneIndices,[1,2],'Both source bones must drive the clipping vertices');
             assert.equal(local.clip.end,'image_b','Clipping must end at the last selected slot');
             assert.equal(local.hotspot,true,'Unselected hotspot attachment must be preserved');
             assert.deepEqual(local.writes,['mask.json'],'Only modified Spine JSON may be sent to the originating editor');
