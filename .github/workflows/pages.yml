@@ -619,7 +619,7 @@ jobs:
               });
             },{png64});
             await page.locator('#open-editor').click();
-            await page.waitForSelector('#selection-tree label.tree-row',{timeout:20000});
+            await page.waitForSelector('#selection-tree label.tree-row',{state:'attached',timeout:20000});
             await page.locator('#agent-toggle').click();
             await page.waitForFunction(()=>!document.body.classList.contains('agent-mode'));
             const leftBone=page.locator('#selection-tree input[data-tree-type="bone"][data-tree-id="left"]');
