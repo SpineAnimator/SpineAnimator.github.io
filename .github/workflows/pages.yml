@@ -454,16 +454,50 @@ jobs:
               'import zipfile,sys,pathlib;root=pathlib.Path(sys.argv[1]);z=zipfile.ZipFile(sys.argv[2],"w",zipfile.ZIP_DEFLATED);[(z.write(f,str(f.relative_to(root)))) for f in root.rglob("*") if f.is_file()];z.close()',
               fixtureFolder,archivePath]);
             await page.locator('#reset').click();
+            await page.locator('#agent-toggle').click();
+            await page.waitForFunction(()=>!document.body.classList.contains('agent-mode'));
             const [fileDialog]=await Promise.all([
-              page.waitForEvent('filechooser'),page.locator('#open-project').click()
+              page.waitForEvent('filechooser'),page.locator('#do-all').click()
             ]);
             assert.equal(fileDialog.isMultiple(),true);
             await fileDialog.setFiles(archivePath);
-            await page.waitForFunction(()=>document.getElementById('summary')?.textContent.startsWith('ONE CLIPPING MASK'));
-            assert.ok((await page.locator('#source-name').textContent()).includes('word.png'));
-            assert.equal(await page.locator('#download-json').isEnabled(),true);
-            console.log('MASK_TOOL_COMPRESSED_ZIP_IMPORT_PASS');
+            await page.waitForSelector('#selection-tree label.tree-row',{timeout:20000});
+            assert.equal(await page.locator('#download-spine-zip').isEnabled(),false,
+              'Import must wait for manual object selection');
+            const wordChoice=page.locator('#selection-tree label.tree-row').filter({hasText:'word'}).locator('input');
+            assert.equal(await wordChoice.count(),1,'Imported region must appear in hierarchy');
+            await wordChoice.check();
+            const [simpleMaskDownload]=await Promise.all([
+              page.waitForEvent('download'),page.locator('#do-all').click()
+            ]);
+            const simpleMaskPath=path.join(os.tmpdir(),'simple-manual-mask.zip');
+            await simpleMaskDownload.saveAs(simpleMaskPath);
+            const simpleBytes=fs.readFileSync(simpleMaskPath);
+            const simpleEntries=[];let simpleCursor=0;
+            while(simpleCursor+4<simpleBytes.length&&simpleBytes.readUInt32LE(simpleCursor)===0x04034b50){
+              const entry=entryAt(simpleBytes,simpleCursor);
+              simpleEntries.push(entry);simpleCursor=entry.next;
+            }
+            const simpleNames=simpleEntries.map(entry=>entry.name);
+            assert.ok(simpleNames.includes('images/word.png'));
+            assert.ok(simpleNames.includes('images/hotspot.png'));
+            const simpleProjectEntry=simpleEntries.find(entry=>entry.name.endsWith('-mask.json'));
+            assert.ok(simpleProjectEntry,'Manual selection must produce a Spine JSON');
+            const simpleProject=JSON.parse(simpleProjectEntry.content.toString('utf8'));
+            const simpleClips=simpleProject.skins.flatMap(s=>Object.values(s.attachments))
+              .flatMap(slot=>Object.values(slot)).filter(a=>a?.type==='clipping');
+            assert.equal(simpleClips.length,1,'Simple mode must create exactly one clipping attachment');
+            assert.equal(simpleProject.animations.idle!==undefined,true,'Source animation was lost');
+            assert.equal(simpleProject.slots[1].name,'logo','Original Spine slot order was lost');
+            console.log('MASK_TOOL_SIMPLE_MANUAL_HIERARCHY_ZIP_PASS');
+
+            await page.locator('#agent-toggle').click();
+            await page.waitForFunction(()=>document.body.classList.contains('agent-mode'));
             await page.locator('#project-folder').setInputFiles(fixtureFolder);
+            await page.waitForFunction(()=>document.getElementById('status')?.textContent.includes('Spine JSON loaded.'));
+            assert.equal(await page.locator('#download-json').isDisabled(),true,
+              'Folder import must not generate a mask before explicit action');
+            await page.locator('#generate').click();
             await page.waitForFunction(()=>document.getElementById('summary')?.textContent.startsWith('ONE CLIPPING MASK'));
             assert.equal(await page.locator('#download-json').isEnabled(),true);
             console.log('MASK_TOOL_PROJECT_FOLDER_IMPORT_PASS');
