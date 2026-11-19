@@ -573,7 +573,7 @@ jobs:
                 'images/hotspot.png':png64
               };
               const sent={};
-              const fake={bytes:files,writes:sent,commits:0,original:JSON.stringify(skel),result:null,updated:false,opened:false};
+              const fake={bytes:files,writes:sent,commits:0,original:JSON.stringify(skel),result:null,updated:false,opened:false,platform:'Darwin',pings:0};
               window.__testLocalBridge=fake;
               window.addEventListener('message',event=>{
                 const m=event.data;
@@ -582,8 +582,10 @@ jobs:
                 try{
                   switch(m.method){
                     case 'ping':
+                      fake.pings++;
                       if(fake.offline)throw Error('native host disconnected');
-                      response.result={connected:true,protocol:'spinemask/1',capabilities:fake.updated?['multi-slot-clipping','weighted-clipping','verified-editor-open']:[]};break;
+                      const caps=fake.updated?['multi-slot-clipping','weighted-clipping',...(fake.platform==='Darwin'?['verified-editor-open','originating-editor-open']:[])]:[];
+                      response.result={connected:true,protocol:'spinemask/1',platform:fake.platform,capabilities:caps};break;
                     case 'open_project':
                       response.result={open:true,connected:true,session:'test-session',
                         source:'scene.json',sourceType:'.json',
@@ -683,9 +685,16 @@ jobs:
               'The button confirms success only after the originating Spine instance verifies the new project');
             assert.equal(await page.evaluate(()=>window.__testLocalBridge.commits),2);
             console.log('MASK_TOOL_ORIGINATING_SPINE_OPEN_UI_PASS');
+            await page.evaluate(()=>{window.__testLocalBridge.platform='Linux';window.__testLocalBridge.opened=false;});
+            await page.locator('#quick-from-spine').click();
+            await page.waitForFunction(()=>window.__testLocalBridge.pings>=3,
+              null,{timeout:15000});
+            assert.equal(await page.locator('#quick-install-bridge').isHidden(),true,
+              'Linux Bridge 1.4 can connect for weighted multi-slot save without macOS same-instance capability');
+            console.log('MASK_LINUX_BRIDGE_CAPABILITY_HANDSHAKE_PASS');
             await page.evaluate(()=>{window.__testLocalBridge.offline=true;});
             await page.locator('#quick-from-spine').click();
-            await page.waitForFunction(()=>document.getElementById('quick-install-bridge')?.hidden===false,
+            await page.waitForFunction(()=>window.__testLocalBridge.pings>=4&&document.getElementById('quick-install-bridge')?.hidden===false,
               null,{timeout:15000});
             assert.equal(await page.locator('#quick-install-bridge').isVisible(),true,
               'Installer must reappear after Bridge disconnect');
