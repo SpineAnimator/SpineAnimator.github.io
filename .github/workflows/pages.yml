@@ -164,6 +164,9 @@ jobs:
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
+      - name: Wait for GitHub Pages artifact metadata propagation
+        shell: bash
+        run: sleep 10
       - uses: actions/deploy-pages@v4
         id: deployment
       - name: Verify published HTML and JavaScript over HTTPS
