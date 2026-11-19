@@ -255,6 +255,24 @@ jobs:
             assert.equal(await page.locator('#do-all').isVisible(),true,'Simple Make all is hidden');
             assert.equal(await page.locator('#quick-install-bridge').isVisible(),true,'Unconnected Simple installer missing');
             assert.equal(await page.locator('#linux-result-link').isHidden(),true);
+            const simpleSurface=await page.evaluate(()=>{
+              const hidden=['.chips','.fields','.control-panel','.file-zone','.preview-head',
+                '.preview-meta','.actions','.status-line','.quick-bridge-status','.quick-hint','.version'];
+              return {agentMode:document.body.classList.contains('agent-mode'),
+                hidden:hidden.every(selector=>{
+                  const e=document.querySelector(selector);
+                  return !e||getComputedStyle(e).display==='none'||getComputedStyle(e).visibility==='hidden';
+                }),
+                text:document.body.innerText};
+            });
+            assert.equal(simpleSurface.agentMode,false,'Simple must be the default mode');
+            assert.equal(simpleSurface.hidden,true,'Simple mode must hide explanatory and advanced text');
+            assert.match(simpleSurface.text,/Spine Mask Tool/,'Logo missing');
+            assert.match(simpleSurface.text,/Agents/,'Agent toggle must remain available');
+            assert.match(simpleSurface.text,/Сделать маску/,'Main action button missing');
+            assert.match(simpleSurface.text,/Install Bridge/,'Installer button missing');
+            assert.doesNotMatch(simpleSurface.text,/Drop files|No image supplied|One clipping mask|Spine Editor Bridge/,
+              'Simple mode must not show explanatory copy outside buttons and logo');
             await page.locator('#agent-toggle').click();
             await page.waitForFunction(()=>document.body.classList.contains('agent-mode'));
             assert.equal(await page.locator('#open-editor').isVisible(),true,'Agents UI should remain available');
@@ -530,26 +548,32 @@ jobs:
             await page.locator('#generate').click();
             await page.waitForFunction(()=>document.getElementById('status')?.textContent.includes('Native Spine conversion:'));
             assert.equal(await page.locator('#download-json').isDisabled(),true);
-            // Emulate ONLY the installed Chrome extension/native-host boundary,
-            // not a remote Spine Editor or user's NDA project. Real native host
-            // protocol is separately verified in Spine-Resize CI.
+            // Emulate the installed Bridge boundary with a synthetic project.
+            // The Bridge returns the exact originating project session; the test
+            // checks that one multi-object clipping mask is committed and opened.
             await page.evaluate(({png64})=>{
-              const skel={skeleton:{spine:'4.3.26'},bones:[{name:'root'}],
-                slots:[{name:'word',bone:'root',attachment:'word'}],
+              const skel={skeleton:{spine:'4.3.26',width:124,height:64,images:'./images/'},
+                bones:[{name:'root'},{name:'left',parent:'root',x:-30},{name:'right',parent:'root',x:30}],
+                slots:[
+                  {name:'image_a',bone:'left',attachment:'partA'},
+                  {name:'image_b',bone:'right',attachment:'partB'},
+                  {name:'hotspot',bone:'root',attachment:'hotspot'}
+                ],
                 skins:[{name:'default',attachments:{
-                  word:{word:{type:'region',path:'word',width:112,height:56}}
+                  image_a:{partA:{type:'region',path:'part-a',width:48,height:48}},
+                  image_b:{partB:{type:'region',path:'part-b',width:48,height:48}},
+                  hotspot:{hotspot:{type:'region',path:'hotspot',width:8,height:8}}
                 }}],animations:{idle:{}}};
               const jsonBytes=new TextEncoder().encode(JSON.stringify(skel));
               const encode=data=>{let v='';for(const b of data)v+=String.fromCharCode(b);return btoa(v);};
               const files={
                 'skeleton.json':encode(jsonBytes),
-                'images/word.png':png64
+                'images/part-a.png':png64,
+                'images/part-b.png':png64,
+                'images/hotspot.png':png64
               };
               const sent={};
-              const fake={
-                bytes:files,writes:sent,commits:0,
-                original:JSON.stringify(skel),result:null,
-              };
+              const fake={bytes:files,writes:sent,commits:0,original:JSON.stringify(skel),result:null};
               window.__testLocalBridge=fake;
               window.addEventListener('message',event=>{
                 const m=event.data;
@@ -557,21 +581,23 @@ jobs:
                 let response={channel:m.channel,type:'response',id:m.id,ok:true};
                 try{
                   switch(m.method){
-                    case 'ping':if(fake.offline)throw Error('native host disconnected');response.result={connected:true,protocol:'spinemask/1'};break;
+                    case 'ping':
+                      if(fake.offline)throw Error('native host disconnected');
+                      response.result={connected:true,protocol:'spinemask/1'};break;
                     case 'open_project':
                       response.result={open:true,connected:true,session:'test-session',
                         source:'scene.json',sourceType:'.json',
                         files:[
                           {key:'skeleton.json',name:'skeleton.json',size:jsonBytes.length},
-                          {key:'images/word.png',name:'word.png',size:atob(png64).length}
+                          {key:'images/part-a.png',name:'part-a.png',size:atob(png64).length},
+                          {key:'images/part-b.png',name:'part-b.png',size:atob(png64).length},
+                          {key:'images/hotspot.png',name:'hotspot.png',size:atob(png64).length}
                         ]};break;
                     case 'read_chunk':{
-                      const decoded=atob(files[m.params.key]);
-                      const offset=m.params.offset;
+                      const decoded=atob(files[m.params.key]),offset=m.params.offset;
                       const chunk=decoded.slice(offset,offset+96000);
                       response.result={key:m.params.key,offset,total:decoded.length,
-                        base64:btoa(chunk),done:offset+chunk.length>=decoded.length};
-                      break;
+                        base64:btoa(chunk),done:offset+chunk.length>=decoded.length};break;
                     }
                     case 'begin_result':
                       fake.expected=m.params.files;
@@ -585,45 +611,57 @@ jobs:
                     case 'commit_result':
                       fake.commits++;
                       fake.result=JSON.parse(sent['mask.json']);
-                      response.result={saved:true,imported:true,opened:true,
-                        project:'scene-mask.spine'};break;
+                      response.result={saved:true,imported:true,opened:true,project:'scene-mask.spine'};break;
                     default:throw Error('Unexpected native call');
                   }
                 }catch(error){response={...response,ok:false,error:String(error)};}
                 queueMicrotask(()=>window.postMessage(response,location.origin));
               });
             },{png64});
-            await page.locator('#open-editor').click(); // top-level editor action uses the same native bridge
+            await page.locator('#open-editor').click();
+            await page.waitForSelector('#selection-tree label.tree-row',{timeout:20000});
+            await page.locator('#agent-toggle').click();
+            await page.waitForFunction(()=>!document.body.classList.contains('agent-mode'));
+            const leftBone=page.locator('#selection-tree input[data-tree-type="bone"][data-tree-id="left"]');
+            const rightSlot=page.locator('#selection-tree input[data-tree-type="slot"][data-tree-id="image_b"]');
+            await leftBone.check();
+            await rightSlot.check();
+            const partAChoice=page.locator('#selection-tree label.tree-row').filter({hasText:'partA'}).locator('input');
+            const partBChoice=page.locator('#selection-tree label.tree-row').filter({hasText:'partB'}).locator('input');
+            assert.equal(await partAChoice.isChecked(),true,'Selecting a bone must select its image');
+            assert.equal(await partBChoice.isChecked(),true,'Selecting a slot must select its image');
+            assert.match(await page.locator('#do-all').textContent(),/Сделать маску/);
+            await page.locator('#do-all').click();
             await page.waitForFunction(()=>
               document.querySelector('#bridge-status')?.textContent.includes('Mask applied'),
               null,{timeout:45000});
             const local=await page.evaluate(()=>{
-              const x=window.__testLocalBridge;
+              const x=window.__testLocalBridge,clips=x.result.skins.flatMap(s=>Object.values(s.attachments))
+                .flatMap(slot=>Object.values(slot)).filter(a=>a?.type==='clipping');
+              const maskSlot=x.result.slots.find(s=>s.name==='auto_mask_multi');
               return {count:x.commits,sourceUnmodified:x.original.includes('"idle"'),
-                slots:x.result.slots.map(x=>x.name),animations:!!x.result.animations?.idle,
-                clip:x.result.skins[0].attachments.auto_mask_word.clip,
-                hasOverlay:!!x.result.skins[0].attachments.auto_mask_overlay_word,
-                uploadedOverlay:!!x.writes['mask-overlay.png'],
-                pngSent:!!x.expected?.some(f=>f.name==='mask-overlay.png'),
-                inputWasUsed:!!x.bytes['images/word.png']
-              };
+                slots:x.result.slots.map(s=>s.name),animations:!!x.result.animations?.idle,
+                clip:clips[0],clipCount:clips.length,clipBone:maskSlot?.bone,
+                hotspot:!!x.result.skins[0].attachments.hotspot?.hotspot,
+                writes:Object.keys(x.writes),expected:x.expected?.map(f=>f.name)||[],
+                opened:!!x.result};
             });
-            assert.equal(local.count,1,'only one roundtrip should commit');
-            assert.deepEqual(local.slots,['auto_mask_word','word']);
-            assert.equal(local.animations,true);
-            assert.equal(local.hasOverlay,false,'Unexpected extra overlay slot');
-            assert.equal(local.uploadedOverlay,false,'NDA texture must not be uploaded to native host');
-            assert.equal(local.pngSent,false,'The native result must contain JSON only');
-            assert.equal(local.clip.end,'word','Clipping must end at the original region');
-            assert.equal(local.inputWasUsed,true);
-            console.log('MASK_TOOL_LOCAL_EDITOR_ROUNDTRIP_PASS');
-            // Simple installer is hidden only after a confirmed native ping,
-            // then shown again if the extension/native host disconnects.
-            await page.locator('#agent-toggle').click();
-            await page.waitForFunction(()=>!document.body.classList.contains('agent-mode'));
+            assert.equal(local.count,1,'only one native roundtrip should commit');
+            assert.deepEqual(local.slots,['auto_mask_multi','image_a','image_b','hotspot']);
+            assert.equal(local.animations,true,'Source animation was lost');
+            assert.equal(local.clipCount,1,'Exactly one clipping attachment must be sent to Spine');
+            assert.equal(local.clipBone,'root','Combined mask must use the common parent bone');
+            assert.equal(local.clip.end,'image_b','Clipping must end at the last selected slot');
+            assert.equal(local.hotspot,true,'Unselected hotspot attachment must be preserved');
+            assert.deepEqual(local.writes,['mask.json'],'Only modified Spine JSON may be sent to the originating editor');
+            assert.deepEqual(local.expected,['mask.json']);
+            assert.equal(local.sourceUnmodified,true,'The imported source project must remain unchanged');
+            assert.equal(await page.locator('#do-all').textContent(),'Открыто в Spine',
+              'The main button must confirm the originating Spine Editor opened the result');
             assert.equal(await page.locator('#quick-install-bridge').isHidden(),true,
               'Installer must disappear after verified Bridge connection');
             assert.equal(await page.locator('#quick-from-spine').isVisible(),true);
+            console.log('MASK_TOOL_MULTI_OBJECT_ORIGINATING_EDITOR_ROUNDTRIP_PASS');
             await page.evaluate(()=>{window.__testLocalBridge.offline=true;});
             await page.locator('#quick-from-spine').click();
             await page.waitForFunction(()=>document.getElementById('quick-install-bridge')?.hidden===false,
