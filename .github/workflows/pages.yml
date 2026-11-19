@@ -573,7 +573,7 @@ jobs:
                 'images/hotspot.png':png64
               };
               const sent={};
-              const fake={bytes:files,writes:sent,commits:0,original:JSON.stringify(skel),result:null,updated:false};
+              const fake={bytes:files,writes:sent,commits:0,original:JSON.stringify(skel),result:null,updated:false,opened:false};
               window.__testLocalBridge=fake;
               window.addEventListener('message',event=>{
                 const m=event.data;
@@ -583,7 +583,7 @@ jobs:
                   switch(m.method){
                     case 'ping':
                       if(fake.offline)throw Error('native host disconnected');
-                      response.result={connected:true,protocol:'spinemask/1',capabilities:fake.updated?['multi-slot-clipping','weighted-clipping']:[]};break;
+                      response.result={connected:true,protocol:'spinemask/1',capabilities:fake.updated?['multi-slot-clipping','weighted-clipping','verified-editor-open']:[]};break;
                     case 'open_project':
                       response.result={open:true,connected:true,session:'test-session',
                         source:'scene.json',sourceType:'.json',
@@ -600,6 +600,7 @@ jobs:
                         base64:btoa(chunk),done:offset+chunk.length>=decoded.length};break;
                     }
                     case 'begin_result':
+                      for(const key of Object.keys(sent))delete sent[key];
                       fake.expected=m.params.files;
                       response.result={stage:'test-output',status:'receiving'};break;
                     case 'write_chunk':{
@@ -611,7 +612,7 @@ jobs:
                     case 'commit_result':
                       fake.commits++;
                       fake.result=JSON.parse(sent['mask.json']);
-                      response.result={saved:true,imported:true,opened:false,project:'scene-mask.spine'};break;
+                      response.result={saved:true,imported:true,opened:fake.opened,project:'scene-mask.spine',openVerification:fake.opened?'originating_instance':'existing_instance_open_not_confirmed'};break;
                     default:throw Error('Unexpected native call');
                   }
                 }catch(error){response={...response,ok:false,error:String(error)};}
@@ -669,11 +670,19 @@ jobs:
             assert.deepEqual(local.expected,['mask.json']);
             assert.equal(local.sourceUnmodified,true,'The imported source project must remain unchanged');
             assert.equal(await page.locator('#do-all').textContent(),'Сохранено',
-              'A host without verified-open capability must report a saved project, not claim the editor opened');
+              'A saved project must not be reported as opened until the originating Editor confirms it');
             assert.equal(await page.locator('#quick-install-bridge').isHidden(),true,
               'Installer must disappear after verified Bridge connection');
             assert.equal(await page.locator('#quick-from-spine').isVisible(),true);
             console.log('MASK_TOOL_MULTI_OBJECT_LINUX_BRIDGE_SAVE_PASS');
+            await page.evaluate(()=>{window.__testLocalBridge.opened=true;});
+            await page.locator('#do-all').click();
+            await page.waitForFunction(()=>document.querySelector('#do-all')?.textContent==='Открыто в Spine',
+              null,{timeout:45000});
+            assert.equal(await page.locator('#do-all').textContent(),'Открыто в Spine',
+              'The button confirms success only after the originating Spine instance verifies the new project');
+            assert.equal(await page.evaluate(()=>window.__testLocalBridge.commits),2);
+            console.log('MASK_TOOL_ORIGINATING_SPINE_OPEN_UI_PASS');
             await page.evaluate(()=>{window.__testLocalBridge.offline=true;});
             await page.locator('#quick-from-spine').click();
             await page.waitForFunction(()=>document.getElementById('quick-install-bridge')?.hidden===false,
