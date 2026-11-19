@@ -583,7 +583,7 @@ jobs:
                   switch(m.method){
                     case 'ping':
                       if(fake.offline)throw Error('native host disconnected');
-                      response.result={connected:true,protocol:'spinemask/1',capabilities:fake.updated?['multi-slot-clipping','weighted-clipping','verified-editor-open']:[]};break;
+                      response.result={connected:true,protocol:'spinemask/1',capabilities:fake.updated?['multi-slot-clipping','weighted-clipping']:[]};break;
                     case 'open_project':
                       response.result={open:true,connected:true,session:'test-session',
                         source:'scene.json',sourceType:'.json',
@@ -611,7 +611,7 @@ jobs:
                     case 'commit_result':
                       fake.commits++;
                       fake.result=JSON.parse(sent['mask.json']);
-                      response.result={saved:true,imported:true,opened:true,project:'scene-mask.spine'};break;
+                      response.result={saved:true,imported:true,opened:false,project:'scene-mask.spine'};break;
                     default:throw Error('Unexpected native call');
                   }
                 }catch(error){response={...response,ok:false,error:String(error)};}
@@ -668,12 +668,12 @@ jobs:
             assert.deepEqual(local.writes,['mask.json'],'Only modified Spine JSON may be sent to the originating editor');
             assert.deepEqual(local.expected,['mask.json']);
             assert.equal(local.sourceUnmodified,true,'The imported source project must remain unchanged');
-            assert.equal(await page.locator('#do-all').textContent(),'Открыто в Spine',
-              'The main button must confirm the originating Spine Editor opened the result');
+            assert.equal(await page.locator('#do-all').textContent(),'Сохранено',
+              'A host without verified-open capability must report a saved project, not claim the editor opened');
             assert.equal(await page.locator('#quick-install-bridge').isHidden(),true,
               'Installer must disappear after verified Bridge connection');
             assert.equal(await page.locator('#quick-from-spine').isVisible(),true);
-            console.log('MASK_TOOL_MULTI_OBJECT_ORIGINATING_EDITOR_ROUNDTRIP_PASS');
+            console.log('MASK_TOOL_MULTI_OBJECT_LINUX_BRIDGE_SAVE_PASS');
             await page.evaluate(()=>{window.__testLocalBridge.offline=true;});
             await page.locator('#quick-from-spine').click();
             await page.waitForFunction(()=>document.getElementById('quick-install-bridge')?.hidden===false,
