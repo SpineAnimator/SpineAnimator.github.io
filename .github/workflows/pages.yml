@@ -673,7 +673,7 @@ jobs:
             assert.equal(await page.locator('#quick-install-bridge').isHidden(),true,
               'Installer must disappear after verified Bridge connection');
             assert.equal(await page.locator('#quick-from-spine').isVisible(),true);
-            console.log('MASK_TOOL_MULTI_OBJECT_ORIGINATING_EDITOR_ROUNDTRIP_PASS');
+            console.log('MASK_TOOL_MULTI_OBJECT_LINUX_BRIDGE_SAVE_PASS');
             await page.evaluate(()=>{window.__testLocalBridge.offline=true;});
             await page.locator('#quick-from-spine').click();
             await page.waitForFunction(()=>document.getElementById('quick-install-bridge')?.hidden===false,
