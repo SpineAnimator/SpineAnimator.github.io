@@ -573,7 +573,7 @@ jobs:
                 'images/hotspot.png':png64
               };
               const sent={};
-              const fake={bytes:files,writes:sent,commits:0,original:JSON.stringify(skel),result:null};
+              const fake={bytes:files,writes:sent,commits:0,original:JSON.stringify(skel),result:null,updated:false};
               window.__testLocalBridge=fake;
               window.addEventListener('message',event=>{
                 const m=event.data;
@@ -583,7 +583,7 @@ jobs:
                   switch(m.method){
                     case 'ping':
                       if(fake.offline)throw Error('native host disconnected');
-                      response.result={connected:true,protocol:'spinemask/1'};break;
+                      response.result={connected:true,protocol:'spinemask/1',capabilities:fake.updated?['multi-slot-clipping','weighted-clipping','verified-editor-open']:[]};break;
                     case 'open_project':
                       response.result={open:true,connected:true,session:'test-session',
                         source:'scene.json',sourceType:'.json',
@@ -618,6 +618,12 @@ jobs:
                 queueMicrotask(()=>window.postMessage(response,location.origin));
               });
             },{png64});
+            await page.locator('#open-editor').click();
+            await page.waitForFunction(()=>document.querySelector('#bridge-install')?.textContent==='Update Bridge',
+              null,{timeout:15000});
+            assert.equal(await page.locator('#bridge-install').isVisible(),true,
+              'An older protocol-compatible Bridge must prompt for update');
+            await page.evaluate(()=>{window.__testLocalBridge.updated=true;});
             await page.locator('#open-editor').click();
             await page.waitForSelector('#selection-tree label.tree-row',{state:'attached',timeout:20000});
             await page.locator('#agent-toggle').click();
@@ -674,6 +680,7 @@ jobs:
               null,{timeout:15000});
             assert.equal(await page.locator('#quick-install-bridge').isVisible(),true,
               'Installer must reappear after Bridge disconnect');
+            assert.equal(await page.locator('#quick-install-bridge').textContent(),'Install Bridge / Extension');
             console.log('MASK_SIMPLE_BRIDGE_INSTALL_LIFECYCLE_PASS');
             assert.deepEqual(pageErrors,[]);
             console.log('MASK_TOOL_BROWSER_E2E_PASS', {url,singleVertices:clip.vertexCount,mergedSlots:merged.slots.length});
