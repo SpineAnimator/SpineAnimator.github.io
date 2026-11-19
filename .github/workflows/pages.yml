@@ -11,7 +11,7 @@ on:
       - .github/workflows/pages.yml
   workflow_dispatch:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [closed]
     branches: [main]
 permissions:
   contents: read
@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   deploy:
-    if: github.repository == 'SpineAnimator/SpineAnimator.github.io' && (github.event_name != 'pull_request' || github.event.pull_request.head.ref == 'publish/manual-multi-object-live-deploy')
+    if: github.repository == 'SpineAnimator/SpineAnimator.github.io' && (github.event_name != 'pull_request' || github.event.pull_request.merged == true)
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
