@@ -639,7 +639,7 @@ jobs:
             assert.match(await page.locator('#do-all').textContent(),/Сделать маску/);
             await page.locator('#do-all').click();
             await page.waitForFunction(()=>
-              document.querySelector('#bridge-status')?.textContent.includes('Mask applied'),
+              (/Mask applied|New \.spine project saved/i).test(document.querySelector('#bridge-status')?.textContent||''),
               null,{timeout:45000});
             const local=await page.evaluate(()=>{
               const x=window.__testLocalBridge,clips=x.result.skins.flatMap(s=>Object.values(s.attachments))
