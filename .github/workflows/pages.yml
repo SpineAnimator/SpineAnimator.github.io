@@ -43,41 +43,75 @@ jobs:
           import vm from 'node:vm';
           const source=fs.readFileSync('app.js','utf8');
           const elements=new Map();
+          function canvas(){
+            return {width:0,height:0,getContext(){return {putImageData(){},drawImage(){}};},
+              toDataURL(){return 'data:image/png;base64,AA==';}};
+          }
           function element(id){
             if(elements.has(id))return elements.get(id);
             const value={id,files:[],value:'',textContent:'',hidden:false,disabled:false,href:'',
               handlers:{},className:'',classList:{add(){},remove(){}},
               addEventListener(type,fn){(this.handlers[type]??=[]).push(fn)},
-              setAttribute(){},getAttribute(){return null},appendChild(){},append(){},remove(){},scrollIntoView(){}};
+              setAttribute(){},getAttribute(){return null},appendChild(){},append(){},remove(){},scrollIntoView(){},
+              getContext(){return {putImageData(){},drawImage(){}};}};
             elements.set(id,value);return value;
           }
           const document={body:{classList:{add(){},remove(){}}},
-            getElementById:id=>element(id),createElement:id=>element('created-'+id)};
+            getElementById:id=>element(id),
+            createElement:tag=>tag==='canvas'?canvas():element('created-'+tag)};
           let urlConstructions=0;
           class TrackedURL extends URL {
             constructor(...args){urlConstructions++;super(...args)}
             static revokeObjectURL(){}
+            static createObjectURL(){return 'blob:psd-upload-smoke';}
           }
           class Observer{observe(){}disconnect(){}}
-          const context={document,window:{},URL:TrackedURL,MutationObserver:Observer,
-            ArrayBuffer,Uint8Array,TextDecoder,Date,console,setTimeout,clearTimeout,
-            AbortController,fetch:async()=>{throw new Error('unexpected network request')}};
+          class FakeImageData{constructor(data,width,height){this.data=data;this.width=width;this.height=height;}}
+          const requests=[];
+          const rgba=new Uint8ClampedArray(2*2*4).fill(255);
+          const context={document,window:{agPsd:{readPsd:()=>({width:2,height:2,
+              imageData:{width:2,height:2,data:rgba},
+              children:[{name:'smoke-layer',left:0,top:0,imageData:{width:2,height:2,data:rgba}}]})}},
+            URL:TrackedURL,MutationObserver:Observer,ImageData:FakeImageData,
+            ArrayBuffer,Uint8Array,Uint8ClampedArray,TextDecoder,Date,console,setTimeout,clearTimeout,
+            AbortController,Blob,fetch:async(url,init)=>{
+              requests.push({url,method:init?.method,body:init?.body});
+              const body=url.endsWith('/api/plan')
+                ? JSON.stringify({scene:{clips:[{id:'smoke',duration:1,tracks:[]}]},
+                    validation:{initialPosePreserved:true,drawOrderPreserved:true}})
+                : null;
+              const bytes=body!==null?new TextEncoder().encode(body).buffer:
+                new Uint8Array([80,75,3,4,0,0,0,0]).buffer;
+              return {ok:true,headers:{get:()=>null},arrayBuffer:async()=>bytes};
+            }};
           vm.runInNewContext(source,context,{filename:'app.js'});
           const create=element('generate').handlers.click[0];
           element('prompt').value='Create a calm idle animation';
           await create();
           assert.match(element('status').textContent,/Generation failed \[PSD input\]: Attach a PSD file or paste a public HTTPS link/);
           assert.equal(urlConstructions,0,'empty PSD source must not construct a URL');
-          element('source-file').files=[{name:'smoke.psd',size:26,arrayBuffer:async()=>new ArrayBuffer(26)}];
+          const invalid=new Uint8Array(26);
+          element('source-file').files=[{name:'smoke.psd',size:invalid.byteLength,arrayBuffer:async()=>invalid.buffer}];
           await create();
           assert.match(element('status').textContent,/Generation failed \[PSD parsing\]: Invalid PSD header/);
           assert.equal(urlConstructions,0,'local PSD upload must bypass URL parsing');
+          const valid=new Uint8Array(26);
+          valid.set([0x38,0x42,0x50,0x53,0,1]);
+          element('source-file').files=[{name:'smoke.psd',size:valid.byteLength,arrayBuffer:async()=>valid.buffer}];
+          await create();
+          assert.match(element('status').textContent,/ZIP ready/,'valid local PSD must reach ZIP export');
+          assert.equal(element('download').hidden,false,'successful PSD processing must expose download');
+          assert.equal(element('download').href,'blob:psd-upload-smoke');
+          assert.deepEqual(requests.map(x=>x.method),['POST','POST']);
+          assert.ok(requests[0].url.endsWith('/api/plan'),'PSD must reach the planner');
+          assert.ok(requests[1].url.endsWith('/api/build'),'planned PSD must reach the ZIP exporter');
+          assert.equal(urlConstructions,0,'valid local PSD must never construct a source URL');
           element('source-file').files=[];
           element('source-url').value='not a valid absolute URL';
           await create();
           assert.match(element('status').textContent,/Generation failed \[PSD input\]: The PSD link is not a valid absolute URL/);
           assert.equal(urlConstructions,1,'only the explicitly supplied malformed link may be parsed');
-          console.log('PSD_UPLOAD_EMPTY_SOURCE_LOCAL_FILE_AND_INVALID_LINK_PASS');
+          console.log('PSD_UPLOAD_LOCAL_FILE_TO_ZIP_EMPTY_SOURCE_AND_INVALID_LINK_PASS');
           PSDUPLOAD
           node --input-type=module --check < Spine-Mask-Tool/core.js
           node --input-type=module --check < Spine-Mask-Tool/app.js
