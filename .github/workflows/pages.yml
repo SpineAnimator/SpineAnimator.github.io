@@ -311,12 +311,13 @@ jobs:
             grep -Fq 'Generation failed [' "$RUNNER_TEMP/published-app.js" || return 1
             grep -Fq 'AI planning failed closed:' "$RUNNER_TEMP/published-app.js" || return 1
             grep -Fq 'No technical fallback ZIP was created.' "$RUNNER_TEMP/published-app.js" || return 1
-            if grep -Fq 'technical_bounce_unapproved' "$RUNNER_TEMP/published-app.js"; then
-              echo 'PAGES_VERIFY_UNAPPROVED_TECHNICAL_BOUNCE_STILL_PRESENT'
+            if grep -Fq 'function technicalFallbackPlan' "$RUNNER_TEMP/published-app.js" ||
+               grep -Fq 'technicalFallback =' "$RUNNER_TEMP/published-app.js"; then
+              echo 'PAGES_VERIFY_TECHNICAL_FALLBACK_EXECUTOR_STILL_PRESENT'
               return 1
             fi
             if grep -Fq 'technical bounce only' "$RUNNER_TEMP/published-app.js"; then
-              echo 'PAGES_VERIFY_UNAPPROVED_TECHNICAL_ZIP_STATUS_STILL_PRESENT'
+              echo 'PAGES_VERIFY_TECHNICAL_FALLBACK_ZIP_STATUS_STILL_PRESENT'
               return 1
             fi
             curl -fLsS --max-time 15 \
