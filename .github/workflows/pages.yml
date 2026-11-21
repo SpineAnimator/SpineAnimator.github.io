@@ -1156,6 +1156,176 @@ jobs:
           path: ${{ runner.temp }}/main-psd-smoke/diagnostics.json
           if-no-files-found: ignore
           retention-days: 7
+      - name: Production clgb71 AI planner and Spine ZIP E2E (single bounded request)
+        if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[prod-psd-e2e]') }}
+        timeout-minutes: 4
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/main-psd-smoke/production.mjs" <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { execFileSync } from 'node:child_process';
+          import { readFileSync } from 'node:fs';
+          import { join } from 'node:path';
+          import { chromium } from 'playwright';
+
+          const origin='https://spineanimator.github.io';
+          const approved='https://files.catbox.moe/clgb71.psd';
+          const sourceApi='https://spine-generator.spine-animator-f8692224.workers.dev/api/psd-source';
+          const expected={bytes:4485543,sha256:'7adee866547a3b3cc9838b655cf70865980c5dba00313373cbf903fed776c7b2'};
+          const sourceResponse=await fetch(sourceApi+'?url='+encodeURIComponent(approved),{
+            headers:{origin},redirect:'error',signal:AbortSignal.timeout(25000)
+          });
+          assert.equal(sourceResponse.status,200,'production source API must return the pinned PSD');
+          const psd=Buffer.from(await sourceResponse.arrayBuffer());
+          assert.equal(psd.length,expected.bytes,'clgb71 byte length changed');
+          assert.equal(createHash('sha256').update(psd).digest('hex'),expected.sha256,'clgb71 SHA-256 changed');
+          assert.deepEqual([...psd.subarray(0,6)],[0x38,0x42,0x50,0x53,0,1],'invalid PSD header');
+
+          const opts={headless:true,args:['--no-sandbox','--disable-dev-shm-usage']};
+          const chrome=process.env.CHROME_PATH || '';
+          if(chrome)opts.executablePath=chrome;
+          const browser=await chromium.launch(opts);
+          const page=await browser.newPage({acceptDownloads:true,viewport:{width:1280,height:900}});
+          const planRequests=[];
+          const buildRequests=[];
+          const responses=[];
+          const failures=[];
+          const started=new Map();
+          page.on('request',request=>{
+            started.set(request,Date.now());
+            const path=new URL(request.url()).pathname;
+            if(request.method()==='POST' && path==='/api/plan')planRequests.push({url:request.url(),at:Date.now()});
+            if(request.method()==='POST' && path==='/api/build')buildRequests.push({url:request.url(),at:Date.now()});
+          });
+          page.on('requestfailed',request=>failures.push({
+            url:request.url(),method:request.method(),error:request.failure()?.errorText||''
+          }));
+          page.on('response',response=>{
+            const path=new URL(response.url()).pathname;
+            if(path==='/api/plan'||path==='/api/build')
+              responses.push({path,status:response.status(),durationMs:Date.now()-(started.get(response.request())||Date.now())});
+          });
+
+          // Compact only raster previews sent to AI. Layer IDs, bounds, transforms,
+          // draw order and original full-resolution images remain untouched for /api/build.
+          await page.route('https://spine-studio.spine-animator-f8692224.workers.dev/api/plan',async route=>{
+            const request=route.request();
+            if(request.method()!=='POST'){await route.continue();return;}
+            const body=request.postDataJSON();
+            assert.ok(Array.isArray(body.layers),'AI plan payload must contain the parsed PSD layers');
+            assert.equal(body.layers.length,38,'production AI payload must retain all 38 source layers');
+            const geometry=body.layers.map(layer=>({
+              id:layer.id,bounds:layer.bounds,transform:layer.transform,parent:layer.parent
+            }));
+            const beforeBytes=Buffer.byteLength(JSON.stringify(body));
+            const images=[body.image,...body.layers.map(layer=>layer.image)];
+            const compact=await page.evaluate(async images=>{
+              const packed=[];
+              for(let i=0;i<images.length;i++){
+                const source=images[i];
+                if(typeof source!=='string'||!source.startsWith('data:image/')){packed.push(source);continue;}
+                try{
+                  const image=new Image();image.src=source;await image.decode();
+                  const max=i===0?320:160;
+                  const scale=Math.min(1,max/Math.max(image.width,image.height));
+                  if(scale>=1){packed.push(source);continue;}
+                  const canvas=document.createElement('canvas');
+                  canvas.width=Math.max(1,Math.round(image.width*scale));
+                  canvas.height=Math.max(1,Math.round(image.height*scale));
+                  canvas.getContext('2d').drawImage(image,0,0,canvas.width,canvas.height);
+                  packed.push(canvas.toDataURL('image/png'));
+                }catch(_){packed.push(source);}
+              }
+              return packed;
+            },images);
+            body.image=compact[0];
+            body.layers.forEach((layer,index)=>{layer.image=compact[index+1];});
+            assert.deepEqual(body.layers.map(layer=>({
+              id:layer.id,bounds:layer.bounds,transform:layer.transform,parent:layer.parent
+            })),geometry,'AI preview compaction must preserve all source geometry and hierarchy');
+            const afterBytes=Buffer.byteLength(JSON.stringify(body));
+            console.log('PRODUCTION_AI_PREVIEW_COMPACTED',JSON.stringify({
+              beforeBytes,afterBytes,layers:body.layers.length,sourceGeometryPreserved:true
+            }));
+            await route.continue({postData:JSON.stringify(body)});
+          });
+
+          try{
+            const response=await page.goto(origin+'/?production-clgb71-ai-e2e='+Date.now(),{
+              waitUntil:'load',timeout:45000
+            });
+            assert.equal(response.status(),200,'public site must load for production E2E');
+            await page.waitForFunction(()=>!!window.agPsd?.readPsd,{timeout:30000});
+            await page.locator('#prompt').fill(
+              'Create a short source-preserving idle animation for the original character. Keep every visible layer, pivot and draw order. Preserve the exact frame-zero setup pose and return to it at the end. Do not invent anatomy, geometry, IK or additional parts.'
+            );
+            await page.locator('#source-file').setInputFiles({
+              name:'clgb71.psd',mimeType:'image/vnd.adobe.photoshop',buffer:psd
+            });
+            await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+            await page.locator('#generate').click();
+            await page.waitForFunction(()=>{
+              const status=document.getElementById('status')?.textContent||'';
+              return status.includes('ZIP ready')||status.startsWith('Generation failed [');
+            },null,{timeout:180000});
+            const state=await page.evaluate(()=>({
+              status:document.getElementById('status')?.textContent||'',
+              layers:Number(document.getElementById('layer-count')?.textContent||0),
+              dimensions:document.getElementById('source-size')?.textContent||'',
+              downloadHidden:!!document.getElementById('download')?.hidden,
+              downloadHref:document.getElementById('download')?.getAttribute('href')||''
+            }));
+            assert.equal(state.layers,38,'real PSD parser must preserve all 38 source layers');
+            assert.equal(state.dimensions,'918 × 657','real PSD canvas dimensions changed');
+            console.log('PRODUCTION_CLGB71_STATUS',JSON.stringify({state,planRequests:planRequests.length,
+              buildRequests:buildRequests.length,responses,failures}));
+
+            if(state.status.startsWith('Generation failed [AI planning]:') &&
+               state.status.includes('AI planning failed closed:') &&
+               (state.status.includes('HTTP 504')||state.status.includes('network timeout')||
+                state.status.includes('unapproved technical fallback scene'))){
+              assert.equal(buildRequests.length,0,'failed live AI planning must never reach /api/build');
+              assert.equal(state.downloadHidden,true,'failed live AI planning must not expose a ZIP');
+              assert.equal(state.downloadHref,'','failed live AI planning must not create an object URL');
+              console.log('PRODUCTION_LIVE_AI_FAILED_CLOSED_NO_ZIP_PASS',JSON.stringify({
+                status:state.status,planRequests:planRequests.length,buildRequests:buildRequests.length,responses
+              }));
+              process.exitCode=0;
+            }else if(state.status.startsWith('ZIP ready')){
+              assert.equal(planRequests.length,1,'exactly one original AI planning request is expected');
+              assert.equal(buildRequests.length,1,'one real /api/build request must follow a valid AI plan');
+              const downloadPromise=page.waitForEvent('download');
+              await page.locator('#download').click();
+              const download=await downloadPromise;
+              const zipPath=join(process.env.RUNNER_TEMP,'main-psd-smoke','production-clgb71.zip');
+              await download.saveAs(zipPath);
+              const zip=readFileSync(zipPath);
+              assert.deepEqual([...zip.subarray(0,4)],[0x50,0x4b,0x03,0x04],'production export must be a ZIP');
+              execFileSync('unzip',['-t',zipPath],{stdio:'pipe'});
+              const entries=execFileSync('unzip',['-Z1',zipPath],{encoding:'utf8'})
+                .split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
+              assert.ok(entries.some(x=>/\.json$/i.test(x)),'ZIP must contain a Spine JSON project');
+              assert.ok(entries.some(x=>/\.atlas$/i.test(x)),'ZIP must contain an atlas');
+              assert.ok(entries.some(x=>/\.png$/i.test(x)),'ZIP must contain raster attachments');
+              const digest=createHash('sha256').update(zip).digest('hex');
+              const report={bytes:zip.length,sha256:digest,entries:entries.length,
+                pngs:entries.filter(x=>/\.png$/i.test(x)).length,
+                planRequests:planRequests.length,buildRequests:buildRequests.length,responses};
+              console.log('PRODUCTION_CLGB71_REAL_SPINE_ZIP_VALIDATED',JSON.stringify(report));
+              process.exitCode=0;
+            }else{
+              throw new Error('Production E2E did not complete at the AI planning boundary: '+state.status+
+                '; plan='+JSON.stringify(planRequests)+'; build='+JSON.stringify(buildRequests)+
+                '; responses='+JSON.stringify(responses)+'; failed='+JSON.stringify(failures));
+            }
+          }finally{await browser.close();}
+          NODE
+          node --check "$RUNNER_TEMP/main-psd-smoke/production.mjs"
+          export CHROME_PATH="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          node "$RUNNER_TEMP/main-psd-smoke/production.mjs"
+
       - name: Verify cloud animation API preflights
         shell: bash
         run: |
