@@ -867,11 +867,11 @@ jobs:
           const consoleMessages=[];
           const failedRequests=[];
           const appResponses=[];
+          const navigations=[];
           const sourceRequests=[];
           const planRequests=[];
           async function newPage(){
             const page=await browser.newPage({viewport:{width:375,height:820}});
-            const navigations=[];
             await page.addInitScript(()=>{
               window.__saEventLog=[];
               const log=(where,event)=>window.__saEventLog.push(where+':'+event.type+':'+
