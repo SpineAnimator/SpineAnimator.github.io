@@ -692,7 +692,6 @@ Object.defineProperty(window,"SpineMaskAgentControl",{
     setHighlightEdges:enabled=>{
       const checkbox=$("highlight-edges");
       checkbox.checked=!!enabled;
-      checkbox.dispatchEvent(new Event("change",{bubbles:true}));
       return checkbox.checked;
     },
     generate:()=>generate(),
