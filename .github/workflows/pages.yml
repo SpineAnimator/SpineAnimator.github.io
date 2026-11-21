@@ -918,9 +918,23 @@ jobs:
                 name:'clgb71.psd',mimeType:'image/vnd.adobe.photoshop',buffer:psd
               });
             }
+            console.log('PSD_E2E_' + mode.toUpperCase() + '_START');
             await page.locator('#generate').click();
-            await page.waitForFunction(()=>document.getElementById('status')?.textContent.includes('ZIP ready'),
-              null,{timeout:90000});
+            await page.waitForFunction(()=>{
+              const status=document.getElementById('status')?.textContent || '';
+              return status.includes('ZIP ready') || status.includes('Generation failed [');
+            },null,{timeout:90000}).catch(async error=>{
+              const diagnostic=await page.evaluate(()=>({
+                status:document.getElementById('status')?.textContent || '',
+                layers:document.getElementById('layer-count')?.textContent || '',
+                dimensions:document.getElementById('source-size')?.textContent || '',
+                sourceName:document.getElementById('source-name')?.textContent || '',
+                previewVisible:!!document.getElementById('source-preview') && !document.getElementById('source-preview').hidden
+              }));
+              throw new Error(mode + ' PSD flow timed out; diagnostic=' + JSON.stringify(diagnostic) +
+                '; browserErrors=' + JSON.stringify(errors) + '; sourceRequests=' +
+                JSON.stringify(sourceRequests) + '; cause=' + error.message);
+            });
             const state=await page.evaluate(()=>({
               layers:Number(document.getElementById('layer-count').textContent),
               dimensions:document.getElementById('source-size').textContent,
@@ -929,8 +943,10 @@ jobs:
               downloadVisible:!document.getElementById('download').hidden,
               status:document.getElementById('status').textContent
             }));
+            if(!state.status.includes('ZIP ready'))
+              throw new Error(mode + ' PSD flow failed before planner/export: ' + state.status);
             assert.ok(state.layers>0,mode+' PSD parsed without visible layers');
-            assert.match(state.dimensions,/\\d+ × \\d+/);
+            assert.match(state.dimensions,/\d+ × \d+/);
             assert.equal(state.previewVisible,true,mode+' PSD preview missing');
             assert.equal(state.downloadVisible,true,mode+' did not reach ZIP export');
             assert.match(state.status,/ZIP ready/);
