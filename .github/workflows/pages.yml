@@ -272,6 +272,21 @@ jobs:
             assert.equal(await page.locator('#do-all').isVisible(),true,'Simple Make all is hidden');
             assert.equal(await page.locator('#quick-install-bridge').isVisible(),true,'Unconnected Simple installer missing');
             assert.equal(await page.locator('#linux-result-link').isHidden(),true);
+            const agentApi=await page.evaluate(()=>{
+              const api=window.SpineMaskAgentControl;
+              return api?{
+                frozen:Object.isFrozen(api),
+                methods:['generate','getSelectableObjects','setSelectedObjects','setSelectedBones',
+                  'runFullWorkflow','verifyLinuxCI','getLinuxStatus','getStatus'].every(k=>typeof api[k]==='function'),
+                initial:api.getStatus()
+              }:null;
+            });
+            assert.ok(agentApi,'SA Agent control API must be exposed');
+            assert.equal(agentApi.frozen,true,'SA Agent API must be immutable');
+            assert.equal(agentApi.methods,true,'SA Agent API method contract is incomplete');
+            assert.equal(agentApi.initial.ready,false,'Fresh page must not report a generated mask');
+            assert.equal(agentApi.initial.linux.status,'idle','Fresh page Linux status must be idle');
+            console.log('SA_AGENT_BROWSER_API_CONTRACT_PASS');
             const simpleSurface=await page.evaluate(()=>{
               const hidden=['.chips','.fields','.control-panel','.file-zone','.preview-head',
                 '.preview-meta','.actions','.status-line','.quick-bridge-status','.quick-hint','.version'];
