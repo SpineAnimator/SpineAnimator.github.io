@@ -51,7 +51,7 @@ jobs:
           ];
           for (const file of files) {
             const source = fs.readFileSync(file, 'utf8');
-            assert.doesNotMatch(source, /[\\u0400-\\u04FF]/u, file + ' contains Cyrillic text');
+            assert.doesNotMatch(source, /[\u0400-\u04FF]/u, file + ' contains Cyrillic text');
           }
           const html = fs.readFileSync('Spine-Mask-Tool/index.html', 'utf8');
           assert.match(html, /<html lang="en">/);
