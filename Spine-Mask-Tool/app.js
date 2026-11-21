@@ -281,7 +281,7 @@ async function unpackSpineZip(file) {
 }
 async function importProjectFiles(fileList, replace=false) {
   const selected=Array.from(fileList||[]);
-  if(!selected.length)return;
+  if(!selected.length)return {status:"needs_input"};
   try{
     const imported=[];
     for(const file of selected){
@@ -291,7 +291,14 @@ async function importProjectFiles(fileList, replace=false) {
     if(replace)$("reset").click();
     await addFiles(imported);
     if(state.binary&&!state.json)$("bridge-setup").open=true;
-  }catch(error){status("Project import: "+error.message,true);}
+    if(state.json)return {status:"loaded",mode:"spine-json",objects:agentGetSelectableObjects()};
+    if(state.binary)return {status:"needs_bridge",mode:"binary-spine"};
+    if(state.source)return {status:"loaded",mode:"image"};
+    return {status:"failed",error:$("status").textContent||"No supported project data found."};
+  }catch(error){
+    status("Project import: "+error.message,true);
+    return {status:"failed",error:String(error?.message||error)};
+  }
 }
 
 async function addFiles(fileList, fromBridge = false) {
@@ -517,7 +524,7 @@ $("generate").addEventListener("click", generate);
 
 // Reuse the validated generator and preserved-project ZIP exporter. Never
 // replace the original upload or silently choose an ambiguous Spine region.
-async function doEverything({awaitNative=false}={}) {
+async function doEverything({awaitNative=false,download=true}={}) {
   if (quickBusy) return;
   if (!state.source && !state.json && !state.binary) {
     quickPickerArmed = true;
@@ -550,11 +557,17 @@ async function doEverything({awaitNative=false}={}) {
     } else if (!state.result) await generate();
     if (!state.result) throw Error($("status").textContent || "Mask validation failed.");
     const zip = await buildPreservedSpineProjectZip();
-    downloadBlob(new Blob([zip], { type: "application/zip" }),
-      (state.base || "mask") + "-complete-spine-mask.zip");
-    status("Complete Spine ZIP saved locally. Queuing licensed Linux verification…");
-    // The SA Agent can await the complete native roundtrip; the UI button stays responsive.
-    if(awaitNative) await verifyLinuxZip(zip); else void verifyLinuxZip(zip);
+    const localArtifact={bytes:zip,filename:(state.base||"mask")+"-complete-spine-mask.zip",contentType:"application/zip"};
+    if(download)downloadBlob(new Blob([zip], { type: "application/zip" }),localArtifact.filename);
+    status("Complete Spine ZIP prepared. Queuing licensed Linux verification…");
+    // SA can await a complete artifact; ordinary UI use remains responsive.
+    if(awaitNative){
+      const native=await verifyLinuxZip(zip,{download});
+      return {status:native.status,artifact:native.artifact||null,localArtifact,
+        error:native.error||null,mask:getMaskAgentStatus()};
+    }
+    void verifyLinuxZip(zip);
+    return {status:"exported",localArtifact,mask:getMaskAgentStatus()};
   } catch (error) {
     state.actionErrorLabel = /continuous selected slot range|consecutive group/i.test(error.message) ? "Select consecutive slots" : "Mask failed";
     status("Automatic mask export failed: " + error.message, true);
@@ -565,7 +578,7 @@ async function doEverything({awaitNative=false}={}) {
     button.textContent = state.actionErrorLabel || (state.editorOpenResult === true ? "Opened in Spine" : state.editorOpenResult === "saved" ? "Saved" : state.editorOpenResult === false ? "Spine error" : "Make Mask");
   }
 }
-async function verifyLinuxZip(zip=null){
+async function verifyLinuxZip(zip=null,{download=true}={}){
   if(linuxVerifyBusy)return;
   linuxVerifyBusy=true;
   const control=$("linux-verify");
@@ -592,13 +605,13 @@ async function verifyLinuxZip(zip=null){
     link.hidden=false;
     state.linuxCI={id:job.id,status:"ready",bytes:native.length};
     status("Linux Spine Editor verified complete project. Native ZIP available.");
-    downloadBlob(new Blob([native],{type:"application/zip"}),
-      (state.base||"spine")+"-linux-native.zip");
-    return state.linuxCI;
+    const artifact={bytes:native,filename:(state.base||"spine")+"-linux-native.zip",contentType:"application/zip"};
+    if(download)downloadBlob(new Blob([native],{type:"application/zip"}),artifact.filename);
+    return {status:"ready",artifact,jobId:job.id};
   }catch(error){
     state.linuxCI={status:"failed",error:String(error?.message||error)};
     status("Linux CI: "+error.message+" · The local Spine ZIP is unaffected.",true);
-    return state.linuxCI;
+    return {status:"failed",error:String(error?.message||error),localArtifact:zip?{bytes:zip,filename:(state.base||"spine")+"-mask.zip",contentType:"application/zip"}:null};
   }finally{linuxVerifyBusy=false;control.disabled=false;}
 }
 $("linux-verify").addEventListener("click",()=>void verifyLinuxZip());
@@ -616,7 +629,19 @@ $("quick-choose-project").addEventListener("click", () => {
 $("highlight-edges").addEventListener("change", () => {
   if(state.source&&(!state.json||selectedRegion()))generate();
 });
-// Stable agent interface. No image data is exposed here or transmitted.
+// Stable same-origin SA Agent interface. Source artwork stays in this browser tab.
+function getMaskAgentStatus(){
+  return {ready:!!state.result,mode:$("highlight-edges").checked?"light-faces":"silhouette",
+    result:state.result?{vertices:state.result.mask.stats.vertices,
+      highlightApplied:state.result.mask.stats.highlightApplied,
+      mobileQualityPassed:state.result.mask.stats.mobileQualityPassed,
+      mobileVertexBudget:state.result.mask.stats.mobileVertexBudget,
+      concurrentSkeletons:state.result.mask.stats.concurrentSkeletons,
+      totalSceneClippingVertices:state.result.mask.stats.totalSceneClippingVertices,
+      darkLeakPercent:state.result.mask.stats.darkLeakPercent,
+      missingLightPercent:state.result.mask.stats.missingLightPercent}:null,
+    linux:state.linuxCI||{status:"idle"}};
+}
 function agentGetSelectableObjects(){
   const slots=state.json?.slots||[];
   return (state.treeChoices||[]).map(e=>{
@@ -664,6 +689,7 @@ function agentSetSelectedBones(names=[]){
 Object.defineProperty(window,"SpineMaskAgentControl",{
   value:Object.freeze({
     getHighlightEdges:()=>$("highlight-edges").checked,
+    loadFiles:files=>importProjectFiles(files,true),
     setHighlightEdges:enabled=>{
       const checkbox=$("highlight-edges");
       checkbox.checked=!!enabled;
@@ -674,19 +700,10 @@ Object.defineProperty(window,"SpineMaskAgentControl",{
     getSelectableObjects:()=>agentGetSelectableObjects(),
     setSelectedObjects:items=>agentSetSelectedObjects(items),
     setSelectedBones:names=>agentSetSelectedBones(names),
-    runFullWorkflow:()=>doEverything({awaitNative:true}),
+    runFullWorkflow:()=>doEverything({awaitNative:true,download:false}),
     verifyLinuxCI:()=>verifyLinuxZip(),
     getLinuxStatus:()=>state.linuxCI||{status:"idle"},
-    getStatus:()=>({ready:!!state.result,mode:$("highlight-edges").checked?"light-faces":"silhouette",
-      result:state.result?{vertices:state.result.mask.stats.vertices,
-        highlightApplied:state.result.mask.stats.highlightApplied,
-        mobileQualityPassed:state.result.mask.stats.mobileQualityPassed,
-        mobileVertexBudget:state.result.mask.stats.mobileVertexBudget,
-        concurrentSkeletons:state.result.mask.stats.concurrentSkeletons,
-        totalSceneClippingVertices:state.result.mask.stats.totalSceneClippingVertices,
-        darkLeakPercent:state.result.mask.stats.darkLeakPercent,
-        missingLightPercent:state.result.mask.stats.missingLightPercent}:null,
-      linux:state.linuxCI||{status:"idle"}})
+    getStatus:()=>getMaskAgentStatus()
   }),
   writable:false,configurable:false
 });
