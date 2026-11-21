@@ -857,7 +857,7 @@ jobs:
             page.on('pageerror',e=>errors.push(e.message));
             page.on('request',r=>{
               if(r.url().includes('/api/psd-source'))sourceRequests.push(r.url());
-              if(r.url().endsWith('/api/plan'))planRequests.push(r.postDataJSON());
+              if(r.method()==='POST'&&r.url().endsWith('/api/plan'))planRequests.push(r.postDataJSON());
             });
             await page.route('https://spine-studio.spine-animator-f8692224.workers.dev/**',async route=>{
               const req=route.request();
