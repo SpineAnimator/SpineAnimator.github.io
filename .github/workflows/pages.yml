@@ -871,18 +871,37 @@ jobs:
           const planRequests=[];
           async function newPage(){
             const page=await browser.newPage({viewport:{width:375,height:820}});
+            const navigations=[];
             await page.addInitScript(()=>{
               window.__saEventLog=[];
+              const log=(where,event)=>window.__saEventLog.push(where+':'+event.type+':'+
+                (event.target?.tagName||'')+'#'+(event.target?.id||''));
               const original=EventTarget.prototype.addEventListener;
               EventTarget.prototype.addEventListener=function(type,listener,options){
-                if(type==='click'&&this&&this.id==='generate')
-                  window.__saEventLog.push('listener-added:'+type+':'+(listener?.name||'anonymous'));
+                if(type==='click'&&this&&this.id==='generate'){
+                  const name=listener?.name||'anonymous';
+                  window.__saEventLog.push('listener-added:'+type+':'+name);
+                  if(typeof listener==='function'){
+                    const wrapped=function(event){log('button-handler:'+name,event);return listener.call(this,event);};
+                    return original.call(this,type,wrapped,options);
+                  }
+                }
                 return original.call(this,type,listener,options);
               };
-              document.addEventListener('click',event=>{
-                if(event.target?.closest?.('#generate'))window.__saEventLog.push('generate-click-captured');
-              },true);
+              for(const type of ['pointerdown','pointerup','mousedown','mouseup','click']){
+                window.addEventListener(type,event=>log('window',event),true);
+                document.addEventListener(type,event=>log('document',event),true);
+              }
+              const observer=new MutationObserver(()=>{
+                const button=document.getElementById('generate');
+                if(button&&!button.dataset.saProbe){
+                  button.dataset.saProbe='1';
+                  button.addEventListener('click',event=>log('button-probe',event),true);
+                }
+              });
+              observer.observe(document,{childList:true,subtree:true});
             });
+            page.on('framenavigated',frame=>navigations.push(frame.url()));
             page.on('pageerror',e=>errors.push(e.message));
             page.on('console',m=>consoleMessages.push(m.type()+': '+m.text()));
             page.on('requestfailed',r=>failedRequests.push({url:r.url(),error:r.failure()?.errorText||''}));
@@ -969,14 +988,27 @@ jobs:
             }
             console.log('PSD_E2E_' + mode.toUpperCase() + '_START');
             await page.locator('#generate').click();
-            const clickDiagnostic=await page.evaluate(()=>({
-              events:window.__saEventLog||[],
-              status:document.getElementById('status')?.textContent||'',
-              disabled:!!document.getElementById('generate')?.disabled
-            }));
+            const clickDiagnostic=await page.evaluate(()=> {
+              const button=document.getElementById('generate');
+              const rect=button?.getBoundingClientRect();
+              const hit=rect?document.elementFromPoint(rect.left+rect.width/2,rect.top+rect.height/2):null;
+              const style=button?getComputedStyle(button):null;
+              return {
+                events:window.__saEventLog||[],
+                status:document.getElementById('status')?.textContent||'',
+                disabled:!!button?.disabled,
+                url:location.href,
+                rect:rect?{x:rect.x,y:rect.y,width:rect.width,height:rect.height}:null,
+                hit:hit?{tag:hit.tagName,id:hit.id,className:String(hit.className||'')}:null,
+                style:style?{display:style.display,visibility:style.visibility,pointerEvents:style.pointerEvents}:null,
+                buttons:document.querySelectorAll('#generate').length
+              };
+            });
             console.log('PSD_E2E_' + mode.toUpperCase() + '_CLICK',JSON.stringify(clickDiagnostic));
-            if(!clickDiagnostic.events.includes('generate-click-captured'))
-              throw new Error(mode+' Animate click did not reach document; diagnostic='+JSON.stringify(clickDiagnostic));
+            if(!clickDiagnostic.events.some(x=>x.includes('button-handler:create')||x.includes('button-probe:click')))
+              throw new Error(mode+' Animate click did not reach the button handler; diagnostic='+JSON.stringify(clickDiagnostic)+
+                '; navigations='+JSON.stringify(navigations)+'; appResponses='+JSON.stringify(appResponses)+
+                '; console='+JSON.stringify(consoleMessages)+'; failedRequests='+JSON.stringify(failedRequests));
             if(!clickDiagnostic.status && !clickDiagnostic.disabled)
               throw new Error(mode+' Animate handler appears not to have started; diagnostic='+JSON.stringify(clickDiagnostic)+
                 '; appResponses='+JSON.stringify(appResponses)+'; console='+JSON.stringify(consoleMessages)+
