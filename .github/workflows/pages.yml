@@ -828,6 +828,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/main-psd-smoke"
+          npm install --prefix "$RUNNER_TEMP/main-psd-smoke" --no-audit --no-fund --silent playwright@1.56.1
+          CHROME_PATH="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          if [ -z "$CHROME_PATH" ]; then
+            "$RUNNER_TEMP/main-psd-smoke/node_modules/.bin/playwright" install chromium
+          fi
+          export CHROME_PATH
           cat > "$RUNNER_TEMP/main-psd-smoke/smoke.mjs" <<'NODE'
           import assert from 'node:assert/strict';
           import { createHash } from 'node:crypto';
