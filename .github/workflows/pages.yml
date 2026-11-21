@@ -37,6 +37,48 @@ jobs:
         run: |
           set -euo pipefail
           node --check app.js
+          node --input-type=module <<'PSDUPLOAD'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          import vm from 'node:vm';
+          const source=fs.readFileSync('app.js','utf8');
+          const elements=new Map();
+          function element(id){
+            if(elements.has(id))return elements.get(id);
+            const value={id,files:[],value:'',textContent:'',hidden:false,disabled:false,href:'',
+              handlers:{},className:'',classList:{add(){},remove(){}},
+              addEventListener(type,fn){(this.handlers[type]??=[]).push(fn)},
+              setAttribute(){},getAttribute(){return null},appendChild(){},append(){},remove(){},scrollIntoView(){}};
+            elements.set(id,value);return value;
+          }
+          const document={body:{classList:{add(){},remove(){}}},
+            getElementById:id=>element(id),createElement:id=>element('created-'+id)};
+          let urlConstructions=0;
+          class TrackedURL extends URL {
+            constructor(...args){urlConstructions++;super(...args)}
+            static revokeObjectURL(){}
+          }
+          class Observer{observe(){}disconnect(){}}
+          const context={document,window:{},URL:TrackedURL,MutationObserver:Observer,
+            ArrayBuffer,Uint8Array,TextDecoder,Date,console,setTimeout,clearTimeout,
+            AbortController,fetch:async()=>{throw new Error('unexpected network request')}};
+          vm.runInNewContext(source,context,{filename:'app.js'});
+          const create=element('generate').handlers.click[0];
+          element('prompt').value='Create a calm idle animation';
+          await create();
+          assert.match(element('status').textContent,/Generation failed \[PSD input\]: Attach a PSD file or paste a public HTTPS link/);
+          assert.equal(urlConstructions,0,'empty PSD source must not construct a URL');
+          element('source-file').files=[{name:'smoke.psd',size:26,arrayBuffer:async()=>new ArrayBuffer(26)}];
+          await create();
+          assert.match(element('status').textContent,/Generation failed \[PSD parsing\]: Invalid PSD header/);
+          assert.equal(urlConstructions,0,'local PSD upload must bypass URL parsing');
+          element('source-file').files=[];
+          element('source-url').value='not a valid absolute URL';
+          await create();
+          assert.match(element('status').textContent,/Generation failed \[PSD input\]: The PSD link is not a valid absolute URL/);
+          assert.equal(urlConstructions,1,'only the explicitly supplied malformed link may be parsed');
+          console.log('PSD_UPLOAD_EMPTY_SOURCE_LOCAL_FILE_AND_INVALID_LINK_PASS');
+          PSDUPLOAD
           node --input-type=module --check < Spine-Mask-Tool/core.js
           node --input-type=module --check < Spine-Mask-Tool/app.js
           node --input-type=module --check < Spine-Mask-Tool/linux-api.js
