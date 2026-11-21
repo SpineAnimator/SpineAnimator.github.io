@@ -517,7 +517,7 @@ $("generate").addEventListener("click", generate);
 
 // Reuse the validated generator and preserved-project ZIP exporter. Never
 // replace the original upload or silently choose an ambiguous Spine region.
-async function doEverything() {
+async function doEverything({awaitNative=false}={}) {
   if (quickBusy) return;
   if (!state.source && !state.json && !state.binary) {
     quickPickerArmed = true;
@@ -553,11 +553,12 @@ async function doEverything() {
     downloadBlob(new Blob([zip], { type: "application/zip" }),
       (state.base || "mask") + "-complete-spine-mask.zip");
     status("Complete Spine ZIP saved locally. Queuing licensed Linux verification…");
-    // Private CI receives the project only after this user-triggered Make all.
-    void verifyLinuxZip(zip);
+    // The SA Agent can await the complete native roundtrip; the UI button stays responsive.
+    if(awaitNative) await verifyLinuxZip(zip); else void verifyLinuxZip(zip);
   } catch (error) {
     state.actionErrorLabel = /continuous selected slot range|consecutive group/i.test(error.message) ? "Select consecutive slots" : "Mask failed";
     status("Automatic mask export failed: " + error.message, true);
+    state.linuxCI={status:"failed",error:String(error?.message||error)};
   } finally {
     quickBusy = false;
     button.disabled = false;
@@ -593,9 +594,11 @@ async function verifyLinuxZip(zip=null){
     status("Linux Spine Editor verified complete project. Native ZIP available.");
     downloadBlob(new Blob([native],{type:"application/zip"}),
       (state.base||"spine")+"-linux-native.zip");
+    return state.linuxCI;
   }catch(error){
     state.linuxCI={status:"failed",error:String(error?.message||error)};
     status("Linux CI: "+error.message+" · The local Spine ZIP is unaffected.",true);
+    return state.linuxCI;
   }finally{linuxVerifyBusy=false;control.disabled=false;}
 }
 $("linux-verify").addEventListener("click",()=>void verifyLinuxZip());
@@ -614,6 +617,50 @@ $("highlight-edges").addEventListener("change", () => {
   if(state.source&&(!state.json||selectedRegion()))generate();
 });
 // Stable agent interface. No image data is exposed here or transmitted.
+function agentGetSelectableObjects(){
+  const slots=state.json?.slots||[];
+  return (state.treeChoices||[]).map(e=>{
+    const slot=slots.find(s=>s.name===e.choice.slot);
+    return {choiceIndex:e.choiceIndex,slot:e.choice.slot,attachment:e.choice.attachment,
+      skin:e.choice.skin||"default",path:e.choice.path||"",bone:slot?.bone||null,
+      selected:state.selectedChoiceIndexes.has(e.choiceIndex)};
+  });
+}
+function agentSetSelectedObjects(items=[]){
+  if(!Array.isArray(items))throw Error("Selection must be an array.");
+  const selected=new Set();
+  for(const e of state.treeChoices||[]){
+    const c=e.choice;
+    const match=items.some(item=>{
+      if(Number.isInteger(item))return item===e.choiceIndex;
+      if(typeof item==="string")return item===c.slot||item===c.attachment||item===c.path;
+      if(!item||typeof item!=="object")return false;
+      return (!item.slot||item.slot===c.slot)&&
+        (!item.attachment||item.attachment===c.attachment)&&
+        (!item.skin||item.skin===(c.skin||"default"))&&
+        (!item.path||item.path===c.path)&&
+        (item.slot||item.attachment||item.path);
+    });
+    if(match)selected.add(e.choiceIndex);
+  }
+  state.selectedChoiceIndexes=selected;
+  syncTreeChecks();clearResult();state.editorOpenResult=null;state.actionErrorLabel=null;updateMakeButton();
+  return agentGetSelectableObjects().filter(x=>x.selected);
+}
+function agentSetSelectedBones(names=[]){
+  if(!Array.isArray(names))throw Error("Bone selection must be an array.");
+  const slots=state.json?.slots||[],selected=new Set();
+  for(const name of names){
+    const descendants=descendantsOf(String(name));
+    for(const e of state.treeChoices||[]){
+      const slot=slots.find(s=>s.name===e.choice.slot);
+      if(slot&&descendants.has(slot.bone))selected.add(e.choiceIndex);
+    }
+  }
+  state.selectedChoiceIndexes=selected;
+  syncTreeChecks();clearResult();state.editorOpenResult=null;state.actionErrorLabel=null;updateMakeButton();
+  return agentGetSelectableObjects().filter(x=>x.selected);
+}
 Object.defineProperty(window,"SpineMaskAgentControl",{
   value:Object.freeze({
     getHighlightEdges:()=>$("highlight-edges").checked,
@@ -624,6 +671,10 @@ Object.defineProperty(window,"SpineMaskAgentControl",{
       return checkbox.checked;
     },
     generate:()=>generate(),
+    getSelectableObjects:()=>agentGetSelectableObjects(),
+    setSelectedObjects:items=>agentSetSelectedObjects(items),
+    setSelectedBones:names=>agentSetSelectedBones(names),
+    runFullWorkflow:()=>doEverything({awaitNative:true}),
     verifyLinuxCI:()=>verifyLinuxZip(),
     getLinuxStatus:()=>state.linuxCI||{status:"idle"},
     getStatus:()=>({ready:!!state.result,mode:$("highlight-edges").checked?"light-faces":"silhouette",
@@ -634,7 +685,8 @@ Object.defineProperty(window,"SpineMaskAgentControl",{
         concurrentSkeletons:state.result.mask.stats.concurrentSkeletons,
         totalSceneClippingVertices:state.result.mask.stats.totalSceneClippingVertices,
         darkLeakPercent:state.result.mask.stats.darkLeakPercent,
-        missingLightPercent:state.result.mask.stats.missingLightPercent}:null})
+        missingLightPercent:state.result.mask.stats.missingLightPercent}:null,
+      linux:state.linuxCI||{status:"idle"}})
   }),
   writable:false,configurable:false
 });
