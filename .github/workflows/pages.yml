@@ -300,7 +300,7 @@ jobs:
               "https://spineanimator.github.io/?check=$GITHUB_SHA" \
               -o "$RUNNER_TEMP/published-index.html" || return 1
             grep -Fq 'SPINE ANIMATOR' "$RUNNER_TEMP/published-index.html" || return 1
-            grep -Fq 'src="./app.js?v=1.4.5"' "$RUNNER_TEMP/published-index.html" || return 1
+            grep -Fq 'src="./app.js?v=1.4.6"' "$RUNNER_TEMP/published-index.html" || return 1
             grep -Fq '<span class="version">v.1.4.3</span>' "$RUNNER_TEMP/published-index.html" || return 1
             curl -fLsS --max-time 15 \
               "https://spineanimator.github.io/app.js?check=$GITHUB_SHA" \
@@ -986,6 +986,13 @@ jobs:
                 name:'clgb71.psd',mimeType:'image/vnd.adobe.photoshop',buffer:psd
               });
             }
+            const attachmentState=await page.evaluate(()=>({
+              hasChatContent:document.body.classList.contains('has-chat-content'),
+              welcomeHidden:!!document.getElementById('chat-welcome')?.hidden
+            }));
+            assert.equal(attachmentState.hasChatContent,false,mode+' source attachment unexpectedly collapsed the welcome layout');
+            assert.equal(attachmentState.welcomeHidden,false,mode+' source attachment unexpectedly hid the welcome block');
+            await page.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
             console.log('PSD_E2E_' + mode.toUpperCase() + '_START');
             await page.locator('#generate').click();
             const clickDiagnostic=await page.evaluate(()=> {
