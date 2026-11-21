@@ -300,7 +300,7 @@ jobs:
               "https://spineanimator.github.io/?check=$GITHUB_SHA" \
               -o "$RUNNER_TEMP/published-index.html" || return 1
             grep -Fq 'SPINE ANIMATOR' "$RUNNER_TEMP/published-index.html" || return 1
-            grep -Fq 'src="./app.js?v=1.4.7"' "$RUNNER_TEMP/published-index.html" || return 1
+            grep -Fq 'src="./app.js?v=1.4.8"' "$RUNNER_TEMP/published-index.html" || return 1
             grep -Fq '<span class="version">v.1.4.3</span>' "$RUNNER_TEMP/published-index.html" || return 1
             curl -fLsS --max-time 15 \
               "https://spineanimator.github.io/app.js?check=$GITHUB_SHA" \
@@ -882,7 +882,7 @@ jobs:
           const sourceRequests=[];
           const planRequests=[];
           const buildRequestsByPage=new WeakMap();
-          async function newPage({planStatus=200}={}){
+          async function newPage({planStatus=200,planBody=null}={}){
             const page=await browser.newPage({viewport:{width:375,height:820}});
             const pageBuildRequests=[];
             buildRequestsByPage.set(page,pageBuildRequests);
@@ -936,7 +936,7 @@ jobs:
                 return;
               }
               await route.fulfill({status:200,headers:{...cors,'Content-Type':'application/json'},
-                body:JSON.stringify({scene:{clips:[{id:'smoke-idle',duration:1,tracks:[]}]},
+                body:JSON.stringify(planBody || {scene:{clips:[{id:'smoke-idle',duration:1,tracks:[]}]},
                   validation:{initialPosePreserved:true,drawOrderPreserved:true}})});
             });
             await page.route('https://spine-generator.spine-animator-f8692224.workers.dev/api/build',async route=>{
@@ -1109,6 +1109,63 @@ jobs:
               buildRequests:buildRequestsByPage.get(timeoutPage).length,downloadHidden:timeoutState.downloadHidden});
             console.log('AI_TIMEOUT_FAIL_CLOSED_NO_ZIP_PASS',timeoutState);
             await timeoutPage.close();
+
+            record('ai-503-fail-closed-start');
+            const retryPage=await newPage({planStatus:503});
+            const plansBeforeRetry=planRequests.length;
+            await retryPage.locator('#prompt').fill('Preserve the source pose and create a short idle animation');
+            await retryPage.locator('#source-file').setInputFiles({
+              name:'clgb71.psd',mimeType:'image/vnd.adobe.photoshop',buffer:psd
+            });
+            await retryPage.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+            await retryPage.locator('#generate').click();
+            await retryPage.waitForFunction(()=>
+              (document.getElementById('status')?.textContent||'').startsWith('Generation failed [AI planning]:'),
+              null,{timeout:40000});
+            const retryState=await retryPage.evaluate(()=>({
+              status:document.getElementById('status')?.textContent||'',
+              layers:Number(document.getElementById('layer-count')?.textContent||0),
+              downloadHidden:!!document.getElementById('download')?.hidden
+            }));
+            assert.equal(retryState.layers,38,'503 retry regression must use the real 38-layer PSD');
+            assert.match(retryState.status,/AI planning failed closed/);
+            assert.match(retryState.status,/No technical fallback ZIP was created/);
+            assert.equal(planRequests.length-plansBeforeRetry,2,'502/503 path must retry once, then stop');
+            assert.equal(buildRequestsByPage.get(retryPage).length,0,'503 failure must not call /api/build');
+            assert.equal(retryState.downloadHidden,true,'503 failure must not expose a ZIP');
+            record('ai-503-retry-fail-closed-pass',{layers:retryState.layers,status:retryState.status,
+              planRequests:planRequests.length-plansBeforeRetry,buildRequests:0,downloadHidden:retryState.downloadHidden});
+            console.log('AI_503_RETRY_FAIL_CLOSED_NO_ZIP_PASS',retryState);
+            await retryPage.close();
+
+            record('ai-unapproved-planner-clip-start');
+            const unapprovedPage=await newPage({planBody:{
+              scene:{clips:[{id:'technical_bounce_unapproved',duration:1,tracks:[]}]},
+              validation:{initialPosePreserved:true,drawOrderPreserved:true}
+            }});
+            await unapprovedPage.locator('#prompt').fill('Preserve the source pose and create a short idle animation');
+            await unapprovedPage.locator('#source-file').setInputFiles({
+              name:'clgb71.psd',mimeType:'image/vnd.adobe.photoshop',buffer:psd
+            });
+            await unapprovedPage.evaluate(()=>new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve))));
+            await unapprovedPage.locator('#generate').click();
+            await unapprovedPage.waitForFunction(()=>
+              (document.getElementById('status')?.textContent||'').startsWith('Generation failed [AI planning]:'),
+              null,{timeout:30000});
+            const unapprovedState=await unapprovedPage.evaluate(()=>({
+              status:document.getElementById('status')?.textContent||'',
+              layers:Number(document.getElementById('layer-count')?.textContent||0),
+              downloadHidden:!!document.getElementById('download')?.hidden
+            }));
+            assert.equal(unapprovedState.layers,38);
+            assert.match(unapprovedState.status,/unapproved technical fallback scene/);
+            assert.equal(buildRequestsByPage.get(unapprovedPage).length,0,
+              'unapproved technical fallback clip must not reach /api/build');
+            assert.equal(unapprovedState.downloadHidden,true);
+            record('ai-unapproved-clip-rejected-pass',{layers:unapprovedState.layers,
+              status:unapprovedState.status,buildRequests:0,downloadHidden:unapprovedState.downloadHidden});
+            console.log('AI_UNAPPROVED_TECHNICAL_CLIP_REJECTED_NO_ZIP_PASS',unapprovedState);
+            await unapprovedPage.close();
 
             record('layout-start');
             const layoutPage=await newPage();
@@ -1283,9 +1340,7 @@ jobs:
               buildRequests:buildRequests.length,responses,failures}));
 
             if(state.status.startsWith('Generation failed [AI planning]:') &&
-               state.status.includes('AI planning failed closed:') &&
-               (state.status.includes('HTTP 504')||state.status.includes('network timeout')||
-                state.status.includes('unapproved technical fallback scene'))){
+               state.status.includes('AI planning failed closed:')){
               assert.equal(buildRequests.length,0,'failed live AI planning must never reach /api/build');
               assert.equal(state.downloadHidden,true,'failed live AI planning must not expose a ZIP');
               assert.equal(state.downloadHref,'','failed live AI planning must not create an object URL');
