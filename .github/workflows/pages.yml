@@ -1419,6 +1419,33 @@ jobs:
           console.log('SYNTHETIC_2LAYER_PLAN_AND_ZIP_PASS',JSON.stringify({layers:2,clips:scene.clips.length,bytes:zip.length,sha256:digest,drawOrder:order}));
           await fs.appendFile(process.env.GITHUB_STEP_SUMMARY,'\n### Synthetic 2-layer production planner\n\n- Valid source-preserving plan: **PASS**\n- Independent ZIP integrity and structure: **PASS**\n- ZIP SHA-256: `'+digest+'`\n');
           NODE
+      - name: One-shot 38-layer small-payload production planner diagnostic
+        if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[studio-probe-38layer]') }}
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO/Vdr0AAAAASUVORK5CYII=';
+          const layers=Array.from({length:38},(_,i)=>({id:'layer_'+String(i).padStart(2,'0'),image:png,bounds:{x:0,y:0,width:1,height:1}}));
+          const input={image:png,layers,description:'38 abstract stacked source layers should move together as a single rigid object in a restrained bounce and return. Keep every layer.',instructions:'Preserve exact 38-layer inventory, pixels, first pose and draw order. Do not infer anatomy, rename, merge or remove any source layer.'};
+          const headers={origin:'https://spineanimator.github.io','content-type':'application/json'};
+          const endpoint='https://spine-studio.spine-animator-f8692224.workers.dev/api/plan';
+          let response,raw='';
+          try{response=await fetch(endpoint,{method:'POST',headers,body:JSON.stringify(input),signal:AbortSignal.timeout(22000)});raw=await response.text();}
+          catch(error){console.log('SYNTHETIC_38LAYER_PLANNER',JSON.stringify({status:'NO_HTTP',error:String(error.message||error)}));process.exit(0);}
+          let data={};try{data=JSON.parse(raw)}catch{}
+          const result={status:response.status,errorCode:data.error?.code||null,errorMessage:String(data.error?.message||'').slice(0,500),cfRay:response.headers.get('cf-ray')||null,requestBytes:Buffer.byteLength(JSON.stringify(input))};
+          console.log('SYNTHETIC_38LAYER_PLANNER',JSON.stringify(result));
+          if(!response.ok){console.log('SYNTHETIC_38LAYER_VERDICT','PLANNER_REJECTED_38_LAYERS');process.exit(0);}
+          const scene=data.scene,validation=data.validation;
+          if(!scene||!Array.isArray(scene.nodes)||!scene.clips?.length||validation?.initialPosePreserved!==true||validation?.drawOrderPreserved!==true||validation?.sourceLayers!==38)throw new Error('Planner returned a scene without 38-layer source-preservation validation');
+          const order=(scene.drawOrder||[]).map(id=>scene.nodes.find(n=>n.id===id)).filter(n=>n?.asset).map(n=>n.asset);
+          const expected=layers.map(x=>x.id);
+          if(order.join('|')!==expected.join('|'))throw new Error('Planner changed 38-layer inventory/draw order: '+JSON.stringify(order));
+          console.log('SYNTHETIC_38LAYER_PLAN_PASS',JSON.stringify({requestBytes:result.requestBytes,nodes:scene.nodes.length,clips:scene.clips.length,sourceLayers:validation.sourceLayers,drawOrderPreserved:true}));
+          await fs.appendFile(process.env.GITHUB_STEP_SUMMARY,'\n### Synthetic 38-layer production planner\n\n- Source-preserving planner: **PASS**\n- Layers: 38\n- Request bytes: '+result.requestBytes+'\n- Exporter called: **no**\n');
+          NODE
       - name: Verify cloud animation API preflights
         shell: bash
         run: |
