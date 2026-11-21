@@ -36,15 +36,18 @@ jobs:
           import assert from 'node:assert/strict';
           import fs from 'node:fs';
           const app=fs.readFileSync('Spine-Mask-Tool/app.js','utf8');
-          assert.match(app,/loadFiles:files=>importProjectFiles\\(files,true\\)/);
-          assert.match(app,/runFullWorkflow:\\(\\)=>doEverything\\(\\{awaitNative:true,download:false\\}\\)/);
-          assert.match(app,/status:"needs_input"/);
-          assert.match(app,/status:"needs_selection"/);
-          assert.match(app,/status:"needs_bridge"/);
-          assert.match(app,/status:"busy"/);
-          assert.match(app,/return \\{status:"ready",artifact,jobId:job.id\\}/);
-          assert.match(app,/return \\{status:"failed",error:/);
-          assert.match(app,/getStatus:\\(\\)=>getMaskAgentStatus\\(\\)/);
-          assert.match(app,/if\\(download\\)downloadBlob/);
+          const required=[
+            'loadFiles:files=>importProjectFiles(files,true)',
+            'runFullWorkflow:()=>doEverything({awaitNative:true,download:false})',
+            'status:"needs_input"',
+            'status:"needs_selection"',
+            'status:"needs_bridge"',
+            'status:"busy"',
+            'return {status:"ready",artifact,jobId:job.id}',
+            'return {status:"failed",error:',
+            'getStatus:()=>getMaskAgentStatus()',
+            'if(download)downloadBlob'
+          ];
+          for(const contract of required)assert.ok(app.includes(contract),'Missing SA API contract: '+contract);
           console.log('SPINE_MASK_TOOL_SA_AGENT_API_CONTRACT_PASS');
           NODE
