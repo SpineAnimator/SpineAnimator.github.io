@@ -850,7 +850,7 @@ jobs:
           const psd=Buffer.from(await sourceResponse.arrayBuffer());
           assert.equal(psd.length,expected.bytes,'production PSD size mismatch');
           assert.equal(createHash('sha256').update(psd).digest('hex'),expected.sha256,'production PSD digest mismatch');
-          assert.equal(psd.subarray(0,6).toString('binary'),'8BPS\\0\\1','invalid real PSD header');
+          assert.deepEqual([...psd.subarray(0,6)],[0x38,0x42,0x50,0x53,0,1],'invalid real PSD header');
 
           const opts={headless:true,args:['--no-sandbox','--disable-dev-shm-usage']};
           if(process.env.CHROME_PATH)opts.executablePath=process.env.CHROME_PATH;
