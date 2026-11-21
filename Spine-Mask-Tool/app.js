@@ -517,7 +517,7 @@ $("generate").addEventListener("click", generate);
 
 // Reuse the validated generator and preserved-project ZIP exporter. Never
 // replace the original upload or silently choose an ambiguous Spine region.
-async function doEverything() {
+async function doEverything({awaitNative=false}={}) {
   if (quickBusy) return;
   if (!state.source && !state.json && !state.binary) {
     quickPickerArmed = true;
@@ -553,8 +553,8 @@ async function doEverything() {
     downloadBlob(new Blob([zip], { type: "application/zip" }),
       (state.base || "mask") + "-complete-spine-mask.zip");
     status("Complete Spine ZIP saved locally. Queuing licensed Linux verification…");
-    // Keep the one-button action alive until the licensed native Editor returns.
-    await verifyLinuxZip(zip);
+    // The SA Agent can await the complete native roundtrip; the UI button stays responsive.
+    if(awaitNative) await verifyLinuxZip(zip); else void verifyLinuxZip(zip);
   } catch (error) {
     state.actionErrorLabel = /continuous selected slot range|consecutive group/i.test(error.message) ? "Select consecutive slots" : "Mask failed";
     status("Automatic mask export failed: " + error.message, true);
@@ -627,7 +627,7 @@ Object.defineProperty(window,"SpineMaskAgentControl",{
       return checkbox.checked;
     },
     generate:()=>generate(),
-    runFullWorkflow:()=>doEverything(),
+    runFullWorkflow:()=>doEverything({awaitNative:true}),
     verifyLinuxCI:()=>verifyLinuxZip(),
     getLinuxStatus:()=>state.linuxCI||{status:"idle"},
     getStatus:()=>({ready:!!state.result,mode:$("highlight-edges").checked?"light-faces":"silhouette",
