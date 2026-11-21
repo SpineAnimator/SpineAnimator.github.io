@@ -1446,6 +1446,31 @@ jobs:
           console.log('SYNTHETIC_38LAYER_PLAN_PASS',JSON.stringify({requestBytes:result.requestBytes,nodes:scene.nodes.length,clips:scene.clips.length,sourceLayers:validation.sourceLayers,drawOrderPreserved:true}));
           await fs.appendFile(process.env.GITHUB_STEP_SUMMARY,'\n### Synthetic 38-layer production planner\n\n- Source-preserving planner: **PASS**\n- Layers: 38\n- Request bytes: '+result.requestBytes+'\n- Exporter called: **no**\n');
           NODE
+      - name: One-shot eight-layer planner latency boundary diagnostic
+        if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[studio-probe-8layer]') }}
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const png='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO/Vdr0AAAAASUVORK5CYII=';
+          const layers=Array.from({length:8},(_,i)=>({id:'layer_'+String(i).padStart(2,'0'),image:png,bounds:{x:0,y:0,width:1,height:1}}));
+          const input={image:png,layers,description:'Eight neutral stacked source layers move together in a restrained bounce and return.',instructions:'Preserve all eight source layers, source pixels, initial pose and draw order. Do not invent anatomy or extra parts.'};
+          const endpoint='https://spine-studio.spine-animator-f8692224.workers.dev/api/plan';
+          const headers={origin:'https://spineanimator.github.io','content-type':'application/json'};
+          let response,raw='';
+          try{response=await fetch(endpoint,{method:'POST',headers,body:JSON.stringify(input),signal:AbortSignal.timeout(18000)});raw=await response.text();}
+          catch(error){console.log('SYNTHETIC_8LAYER_PLANNER',JSON.stringify({status:'NO_HTTP',error:String(error.message||error),requestBytes:Buffer.byteLength(JSON.stringify(input))}));process.exit(0);}
+          let data={};try{data=JSON.parse(raw)}catch{}
+          const result={status:response.status,errorCode:data.error?.code||null,errorMessage:String(data.error?.message||'').slice(0,400),cfRay:response.headers.get('cf-ray')||null,requestBytes:Buffer.byteLength(JSON.stringify(input))};
+          console.log('SYNTHETIC_8LAYER_PLANNER',JSON.stringify(result));
+          if(!response.ok){console.log('SYNTHETIC_8LAYER_VERDICT','PLANNER_REJECTED_8_LAYERS');process.exit(0);}
+          const scene=data.scene,validation=data.validation;
+          if(!scene||!Array.isArray(scene.nodes)||!scene.clips?.length||validation?.initialPosePreserved!==true||validation?.drawOrderPreserved!==true||validation?.sourceLayers!==8)throw new Error('Planner returned invalid 8-layer source-preservation report');
+          const order=(scene.drawOrder||[]).map(id=>scene.nodes.find(n=>n.id===id)).filter(n=>n?.asset).map(n=>n.asset);
+          if(order.join('|')!==layers.map(x=>x.id).join('|'))throw new Error('Planner changed the eight-layer source order');
+          console.log('SYNTHETIC_8LAYER_PLAN_PASS',JSON.stringify({layers:8,clips:scene.clips.length,drawOrderPreserved:true,requestBytes:result.requestBytes}));
+          NODE
       - name: Verify cloud animation API preflights
         shell: bash
         run: |
