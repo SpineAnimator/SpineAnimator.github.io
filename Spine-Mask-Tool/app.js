@@ -525,25 +525,23 @@ $("generate").addEventListener("click", generate);
 // Reuse the validated generator and preserved-project ZIP exporter. Never
 // replace the original upload or silently choose an ambiguous Spine region.
 async function doEverything({awaitNative=false,download=true}={}) {
-  if (quickBusy) return;
+  if (quickBusy) return {status:"busy"};
   if (!state.source && !state.json && !state.binary) {
-    quickPickerArmed = true;
-    $("project-files").click();
-    return;
+    return {status:"needs_input"};
   }
   if (state.binary && !state.json) {
     setAgentMode(true);
     status("This binary Spine project needs the native Bridge or an exported JSON with images.", true);
-    return;
+    return {status:"needs_bridge"};
   }
   if (state.json && !state.selectedChoiceIndexes.size) {
     $("do-all").textContent = "Select an item";
-    return;
+    return {status:"needs_selection",objects:agentGetSelectableObjects()};
   }
   if (!state.json && !state.source) {
     setAgentMode(true);
     status("Select a source image first.", true);
-    return;
+    return {status:"needs_input"};
   }
   quickBusy = true;
   const button = $("do-all");
@@ -572,6 +570,7 @@ async function doEverything({awaitNative=false,download=true}={}) {
     state.actionErrorLabel = /continuous selected slot range|consecutive group/i.test(error.message) ? "Select consecutive slots" : "Mask failed";
     status("Automatic mask export failed: " + error.message, true);
     state.linuxCI={status:"failed",error:String(error?.message||error)};
+    return {status:"failed",error:String(error?.message||error),mask:getMaskAgentStatus()};
   } finally {
     quickBusy = false;
     button.disabled = false;
