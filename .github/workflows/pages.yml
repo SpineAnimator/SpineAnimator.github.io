@@ -269,7 +269,7 @@ jobs:
             assert.equal(simpleSurface.hidden,true,'Simple mode must hide explanatory and advanced text');
             assert.match(simpleSurface.text,/Spine Mask Tool/,'Logo missing');
             assert.match(simpleSurface.text,/Agents/,'Agent toggle must remain available');
-            assert.match(simpleSurface.text,/Сделать маску/,'Main action button missing');
+            assert.match(simpleSurface.text,/Make Mask/,'Main action button missing');
             assert.match(simpleSurface.text,/Install Bridge/,'Installer button missing');
             assert.doesNotMatch(simpleSurface.text,/Drop files|No image supplied|One clipping mask|Spine Editor Bridge/,
               'Simple mode must not show explanatory copy outside buttons and logo');
@@ -639,7 +639,7 @@ jobs:
             const partBChoice=page.locator('#selection-tree label.tree-row').filter({hasText:'partB'}).locator('input');
             assert.equal(await partAChoice.isChecked(),true,'Selecting a bone must select its image');
             assert.equal(await partBChoice.isChecked(),true,'Selecting a slot must select its image');
-            assert.match(await page.locator('#do-all').textContent(),/Сделать маску/);
+            assert.match(await page.locator('#do-all').textContent(),/Make Mask/);
             await page.locator('#do-all').click();
             await page.waitForFunction(()=>
               (/Mask applied|New \.spine project saved/i).test(document.querySelector('#bridge-status')?.textContent||''),
@@ -671,7 +671,7 @@ jobs:
             assert.deepEqual(local.writes,['mask.json'],'Only modified Spine JSON may be sent to the originating editor');
             assert.deepEqual(local.expected,['mask.json']);
             assert.equal(local.sourceUnmodified,true,'The imported source project must remain unchanged');
-            assert.equal(await page.locator('#do-all').textContent(),'Сохранено',
+            assert.equal(await page.locator('#do-all').textContent(),'Saved',
               'A saved project must not be reported as opened until the originating Editor confirms it');
             assert.equal(await page.locator('#quick-install-bridge').isHidden(),true,
               'Installer must disappear after verified Bridge connection');
@@ -679,9 +679,9 @@ jobs:
             console.log('MASK_TOOL_MULTI_OBJECT_LINUX_BRIDGE_SAVE_PASS');
             await page.evaluate(()=>{window.__testLocalBridge.opened=true;});
             await page.locator('#do-all').click();
-            await page.waitForFunction(()=>document.querySelector('#do-all')?.textContent==='Открыто в Spine',
+            await page.waitForFunction(()=>document.querySelector('#do-all')?.textContent==='Opened in Spine',
               null,{timeout:45000});
-            assert.equal(await page.locator('#do-all').textContent(),'Открыто в Spine',
+            assert.equal(await page.locator('#do-all').textContent(),'Opened in Spine',
               'The button confirms success only after the originating Spine instance verifies the new project');
             assert.equal(await page.evaluate(()=>window.__testLocalBridge.commits),2);
             console.log('MASK_TOOL_ORIGINATING_SPINE_OPEN_UI_PASS');
