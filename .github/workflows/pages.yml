@@ -40,6 +40,26 @@ jobs:
           node --input-type=module --check < Spine-Mask-Tool/core.js
           node --input-type=module --check < Spine-Mask-Tool/app.js
           node --input-type=module --check < Spine-Mask-Tool/linux-api.js
+          node --input-type=module <<'AGENTAPI'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const app=fs.readFileSync('Spine-Mask-Tool/app.js','utf8');
+          assert.match(app,/loadFiles:files=>importProjectFiles\(files,true\)/,
+            'SA must be able to pass a project without using the file picker');
+          assert.match(app,/runFullWorkflow:\(\)=>doEverything\(\{awaitNative:true,download:false\}\)/,
+            'SA must receive an awaitable result without forced browser downloads');
+          assert.match(app,/status:"needs_selection"/,
+            'ambiguous Spine projects must request explicit object selection');
+          assert.match(app,/status:"needs_bridge"/,
+            'binary Spine projects must fail closed until Bridge conversion is available');
+          assert.match(app,/return \{status:"ready",artifact,jobId:job.id\}/,
+            'native Linux Editor output bytes must be returned to SA');
+          assert.match(app,/return \{status:"failed",error:/,
+            'Linux failures must be machine-readable');
+          assert.match(app,/getStatus:\(\)=>getMaskAgentStatus\(\)/,
+            'SA must be able to inspect mask quality and runtime state');
+          console.log('SPINE_MASK_TOOL_SA_AGENT_API_CONTRACT_PASS');
+          AGENTAPI
           node --input-type=module <<'LANGCHECK'
           import assert from 'node:assert/strict';
           import fs from 'node:fs';
