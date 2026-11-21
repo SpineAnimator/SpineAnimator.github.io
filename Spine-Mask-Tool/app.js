@@ -553,11 +553,12 @@ async function doEverything() {
     downloadBlob(new Blob([zip], { type: "application/zip" }),
       (state.base || "mask") + "-complete-spine-mask.zip");
     status("Complete Spine ZIP saved locally. Queuing licensed Linux verification…");
-    // Private CI receives the project only after this user-triggered Make all.
-    void verifyLinuxZip(zip);
+    // Keep the one-button action alive until the licensed native Editor returns.
+    await verifyLinuxZip(zip);
   } catch (error) {
     state.actionErrorLabel = /continuous selected slot range|consecutive group/i.test(error.message) ? "Select consecutive slots" : "Mask failed";
     status("Automatic mask export failed: " + error.message, true);
+    state.linuxCI={status:"failed",error:String(error?.message||error)};
   } finally {
     quickBusy = false;
     button.disabled = false;
@@ -593,9 +594,11 @@ async function verifyLinuxZip(zip=null){
     status("Linux Spine Editor verified complete project. Native ZIP available.");
     downloadBlob(new Blob([native],{type:"application/zip"}),
       (state.base||"spine")+"-linux-native.zip");
+    return state.linuxCI;
   }catch(error){
     state.linuxCI={status:"failed",error:String(error?.message||error)};
     status("Linux CI: "+error.message+" · The local Spine ZIP is unaffected.",true);
+    return state.linuxCI;
   }finally{linuxVerifyBusy=false;control.disabled=false;}
 }
 $("linux-verify").addEventListener("click",()=>void verifyLinuxZip());
@@ -624,6 +627,7 @@ Object.defineProperty(window,"SpineMaskAgentControl",{
       return checkbox.checked;
     },
     generate:()=>generate(),
+    runFullWorkflow:()=>doEverything(),
     verifyLinuxCI:()=>verifyLinuxZip(),
     getLinuxStatus:()=>state.linuxCI||{status:"idle"},
     getStatus:()=>({ready:!!state.result,mode:$("highlight-edges").checked?"light-faces":"silhouette",
@@ -634,7 +638,8 @@ Object.defineProperty(window,"SpineMaskAgentControl",{
         concurrentSkeletons:state.result.mask.stats.concurrentSkeletons,
         totalSceneClippingVertices:state.result.mask.stats.totalSceneClippingVertices,
         darkLeakPercent:state.result.mask.stats.darkLeakPercent,
-        missingLightPercent:state.result.mask.stats.missingLightPercent}:null})
+        missingLightPercent:state.result.mask.stats.missingLightPercent}:null,
+      linux:state.linuxCI||{status:"idle"}})
   }),
   writable:false,configurable:false
 });
