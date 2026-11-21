@@ -508,20 +508,11 @@ jobs:
             execFileSync('python3',['-c',
               'import zipfile,sys,pathlib;root=pathlib.Path(sys.argv[1]);z=zipfile.ZipFile(sys.argv[2],"w",zipfile.ZIP_DEFLATED);[(z.write(f,str(f.relative_to(root)))) for f in root.rglob("*") if f.is_file()];z.close()',
               fixtureFolder,archivePath]);
-            await page.locator('#reset').click();
-            await page.locator('#agent-toggle').click();
-            await page.waitForFunction(()=>!document.body.classList.contains('agent-mode'));
-            await page.evaluate(()=>{
-              window.__saProjectInputClicked=false;
-              document.getElementById('project-files').addEventListener('click',()=>{
-                window.__saProjectInputClicked=true;
-              },{once:true});
-            });
-            await page.locator('#open-project').click();
-            await page.waitForFunction(()=>window.__saProjectInputClicked===true,{timeout:5000});
-            assert.equal(await page.locator('#project-files').getAttribute('multiple'),'',
-              'Project input must accept multiple files');
-            await page.locator('#project-files').setInputFiles(archivePath);
+            const [fileDialog]=await Promise.all([
+              page.waitForEvent('filechooser'),page.locator('#open-project').click()
+            ]);
+            assert.equal(fileDialog.isMultiple(),true,'Project input must accept multiple files');
+            await fileDialog.setFiles(archivePath);
             await page.waitForSelector('#selection-tree label.tree-row',{timeout:20000});
             assert.equal(await page.locator('#download-spine-zip').isEnabled(),false,
               'Import must wait for manual object selection');
