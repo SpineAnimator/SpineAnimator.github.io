@@ -1,0 +1,53 @@
+name: Spine Mask Tool SA API
+on:
+  pull_request:
+    paths:
+      - Spine-Mask-Tool/**
+      - .github/workflows/mask-tool-agent-api.yml
+  push:
+    branches: [main]
+    paths:
+      - Spine-Mask-Tool/**
+      - .github/workflows/mask-tool-agent-api.yml
+permissions:
+  contents: read
+concurrency:
+  group: mask-tool-agent-api
+  cancel-in-progress: true
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check module syntax
+        run: |
+          node --input-type=module --check < Spine-Mask-Tool/core.js
+          node --input-type=module --check < Spine-Mask-Tool/app.js
+          node --input-type=module --check < Spine-Mask-Tool/linux-api.js
+      - name: Verify SA agent contract
+        run: |
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const app=fs.readFileSync('Spine-Mask-Tool/app.js','utf8');
+          const required=[
+            'loadFiles:files=>importProjectFiles(files,true)',
+            'runFullWorkflow:()=>doEverything({awaitNative:true,download:false})',
+            'status:"needs_input"',
+            'status:"needs_selection"',
+            'status:"needs_bridge"',
+            'status:"busy"',
+            'return {status:"ready",artifact,jobId:job.id}',
+            'return {status:"failed",error:',
+            'getStatus:()=>getMaskAgentStatus()',
+            'if(download)downloadBlob'
+          ];
+          for(const contract of required)assert.ok(app.includes(contract),'Missing SA API contract: '+contract);
+          console.log('SPINE_MASK_TOOL_SA_AGENT_API_CONTRACT_PASS');
+          NODE
