@@ -43,9 +43,11 @@ jobs:
           import vm from 'node:vm';
           const source=fs.readFileSync('app.js','utf8');
           const elements=new Map();
+          class FakeCanvas {}
           function canvas(){
-            return {width:0,height:0,getContext(){return {putImageData(){},drawImage(){}};},
-              toDataURL(){return 'data:image/png;base64,AA==';}};
+            return Object.assign(new FakeCanvas(),{width:0,height:0,
+              getContext(){return {putImageData(){},drawImage(){}};},
+              toDataURL(){return 'data:image/png;base64,AA==';}});
           }
           function element(id){
             if(elements.has(id))return elements.get(id);
@@ -72,7 +74,7 @@ jobs:
           const context={document,window:{agPsd:{readPsd:()=>({width:2,height:2,
               imageData:{width:2,height:2,data:rgba},
               children:[{name:'smoke-layer',left:0,top:0,imageData:{width:2,height:2,data:rgba}}]})}},
-            URL:TrackedURL,MutationObserver:Observer,ImageData:FakeImageData,
+            URL:TrackedURL,MutationObserver:Observer,ImageData:FakeImageData,HTMLCanvasElement:FakeCanvas,
             ArrayBuffer,Uint8Array,Uint8ClampedArray,TextDecoder,Date,console,setTimeout,clearTimeout,
             AbortController,Blob,fetch:async(url,init)=>{
               requests.push({url,method:init?.method,body:init?.body});
