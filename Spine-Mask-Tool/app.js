@@ -617,6 +617,50 @@ $("highlight-edges").addEventListener("change", () => {
   if(state.source&&(!state.json||selectedRegion()))generate();
 });
 // Stable agent interface. No image data is exposed here or transmitted.
+function agentGetSelectableObjects(){
+  const slots=state.json?.slots||[];
+  return (state.treeChoices||[]).map(e=>{
+    const slot=slots.find(s=>s.name===e.choice.slot);
+    return {choiceIndex:e.choiceIndex,slot:e.choice.slot,attachment:e.choice.attachment,
+      skin:e.choice.skin||"default",path:e.choice.path||"",bone:slot?.bone||null,
+      selected:state.selectedChoiceIndexes.has(e.choiceIndex)};
+  });
+}
+function agentSetSelectedObjects(items=[]){
+  if(!Array.isArray(items))throw Error("Selection must be an array.");
+  const selected=new Set();
+  for(const e of state.treeChoices||[]){
+    const c=e.choice;
+    const match=items.some(item=>{
+      if(Number.isInteger(item))return item===e.choiceIndex;
+      if(typeof item==="string")return item===c.slot||item===c.attachment||item===c.path;
+      if(!item||typeof item!=="object")return false;
+      return (!item.slot||item.slot===c.slot)&&
+        (!item.attachment||item.attachment===c.attachment)&&
+        (!item.skin||item.skin===(c.skin||"default"))&&
+        (!item.path||item.path===c.path)&&
+        (item.slot||item.attachment||item.path);
+    });
+    if(match)selected.add(e.choiceIndex);
+  }
+  state.selectedChoiceIndexes=selected;
+  syncTreeChecks();clearResult();state.editorOpenResult=null;state.actionErrorLabel=null;updateMakeButton();
+  return agentGetSelectableObjects().filter(x=>x.selected);
+}
+function agentSetSelectedBones(names=[]){
+  if(!Array.isArray(names))throw Error("Bone selection must be an array.");
+  const slots=state.json?.slots||[],selected=new Set();
+  for(const name of names){
+    const descendants=descendantsOf(String(name));
+    for(const e of state.treeChoices||[]){
+      const slot=slots.find(s=>s.name===e.choice.slot);
+      if(slot&&descendants.has(slot.bone))selected.add(e.choiceIndex);
+    }
+  }
+  state.selectedChoiceIndexes=selected;
+  syncTreeChecks();clearResult();state.editorOpenResult=null;state.actionErrorLabel=null;updateMakeButton();
+  return agentGetSelectableObjects().filter(x=>x.selected);
+}
 Object.defineProperty(window,"SpineMaskAgentControl",{
   value:Object.freeze({
     getHighlightEdges:()=>$("highlight-edges").checked,
@@ -627,6 +671,9 @@ Object.defineProperty(window,"SpineMaskAgentControl",{
       return checkbox.checked;
     },
     generate:()=>generate(),
+    getSelectableObjects:()=>agentGetSelectableObjects(),
+    setSelectedObjects:items=>agentSetSelectedObjects(items),
+    setSelectedBones:names=>agentSetSelectedBones(names),
     runFullWorkflow:()=>doEverything({awaitNative:true}),
     verifyLinuxCI:()=>verifyLinuxZip(),
     getLinuxStatus:()=>state.linuxCI||{status:"idle"},
