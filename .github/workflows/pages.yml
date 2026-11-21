@@ -513,6 +513,10 @@ jobs:
             ]);
             assert.equal(fileDialog.isMultiple(),true,'Project input must accept multiple files');
             await fileDialog.setFiles(archivePath);
+            if(await page.evaluate(()=>document.body.classList.contains('agent-mode'))){
+              await page.locator('#agent-toggle').click();
+              await page.waitForFunction(()=>!document.body.classList.contains('agent-mode'));
+            }
             await page.waitForSelector('#selection-tree label.tree-row',{timeout:20000});
             assert.equal(await page.locator('#download-spine-zip').isEnabled(),false,
               'Import must wait for manual object selection');
