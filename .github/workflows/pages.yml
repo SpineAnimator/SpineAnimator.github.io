@@ -837,7 +837,15 @@ jobs:
           cat > "$RUNNER_TEMP/main-psd-smoke/smoke.mjs" <<'NODE'
           import assert from 'node:assert/strict';
           import { createHash } from 'node:crypto';
+          import { writeFileSync } from 'node:fs';
           import { chromium } from 'playwright';
+
+          const diagnosticLog=[];
+          const record=(label,data={})=>{
+            const entry={at:new Date().toISOString(),label,...data};
+            diagnosticLog.push(entry);
+            console.log('PSD_E2E_DIAGNOSTIC',JSON.stringify(entry));
+          };
 
           const origin='https://spineanimator.github.io';
           const approved='https://files.catbox.moe/clgb71.psd';
@@ -902,7 +910,19 @@ jobs:
             });
             const response=await page.goto(origin+'/?psd-ui-smoke='+Date.now(),{waitUntil:'load',timeout:45000});
             assert.equal(response.status(),200,'public website must return HTTP 200');
-            await page.waitForFunction(()=>!!window.agPsd?.readPsd,{timeout:30000});
+            record('page-loaded',{url:page.url(),httpStatus:response.status()});
+            await page.waitForFunction(()=>!!window.agPsd?.readPsd,{timeout:30000}).catch(async error=>{
+              const diag=await page.evaluate(()=>({
+                readyState:document.readyState,
+                agPsd:typeof window.agPsd,
+                scripts:[...document.scripts].map(s=>({src:s.src,type:s.type,ready:s.readyState})),
+                generateExists:!!document.getElementById('generate'),
+                status:document.getElementById('status')?.textContent||''
+              }));
+              record('ag-psd-startup-timeout',{diag,pageErrors:errors,console:consoleMessages,failedRequests});
+              throw new Error('ag-psd did not initialize: '+JSON.stringify(diag)+'; pageErrors='+JSON.stringify(errors)+'; console='+JSON.stringify(consoleMessages)+'; failedRequests='+JSON.stringify(failedRequests)+'; cause='+error.message);
+            });
+            record('ag-psd-ready');
             const startup=await page.evaluate(()=>({
               events:window.__saEventLog||[],
               scripts:[...document.scripts].map(s=>s.src),
@@ -1001,19 +1021,25 @@ jobs:
             return state;
           }
           try{
+            record('layout-start');
             const layoutPage=await newPage();
             await checkLayout(layoutPage);
+            record('layout-pass');
             await layoutPage.close();
 
+            record('link-flow-start');
             const linkPage=await newPage();
             const link=await runSource(linkPage,'link');
+            record('link-flow-pass',{layers:link.layers,dimensions:link.dimensions,status:link.status});
             assert.ok(sourceRequests.some(url=>decodeURIComponent(url).includes('clgb71.psd')),
               'link mode did not request the approved PSD source through the production source API');
             await linkPage.close();
 
+            record('file-flow-start');
             const filePage=await newPage();
             const before=sourceRequests.length;
             const file=await runSource(filePage,'file');
+            record('file-flow-pass',{layers:file.layers,dimensions:file.dimensions,status:file.status});
             assert.equal(sourceRequests.length,before,'local file upload unexpectedly used remote URL source API');
             assert.equal(file.sourceName,'clgb71.psd');
             await filePage.close();
@@ -1022,11 +1048,25 @@ jobs:
             console.log('MAIN_COMPOSER_RESPONSIVE_ONE_ROW_PASS');
             console.log('REAL_PSD_LINK_TO_PLANNER_AND_ZIP_PASS',link);
             console.log('REAL_PSD_FILE_UPLOAD_TO_PLANNER_AND_ZIP_PASS',file);
+          }catch(error){
+            record('fatal',{message:error?.message||String(error),stack:error?.stack||'',pageErrors:errors,
+              console:consoleMessages,failedRequests,appResponses,sourceRequests,planRequests});
+            writeFileSync(process.env.RUNNER_TEMP+'/main-psd-smoke/diagnostics.json',
+              JSON.stringify(diagnosticLog,null,2));
+            throw error;
           }finally{await browser.close();}
           NODE
           node --check "$RUNNER_TEMP/main-psd-smoke/smoke.mjs"
           export CHROME_PATH="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
           node "$RUNNER_TEMP/main-psd-smoke/smoke.mjs"
+      - name: Upload PSD browser E2E diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: main-psd-browser-e2e-diagnostics
+          path: ${{ runner.temp }}/main-psd-smoke/diagnostics.json
+          if-no-files-found: ignore
+          retention-days: 7
       - name: Verify cloud animation API preflights
         shell: bash
         run: |
