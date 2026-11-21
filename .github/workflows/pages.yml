@@ -512,7 +512,7 @@ jobs:
             await page.locator('#agent-toggle').click();
             await page.waitForFunction(()=>!document.body.classList.contains('agent-mode'));
             const [fileDialog]=await Promise.all([
-              page.waitForEvent('filechooser'),page.locator('#do-all').click()
+              page.waitForEvent('filechooser'),page.locator('#open-project').click()
             ]);
             assert.equal(fileDialog.isMultiple(),true);
             await fileDialog.setFiles(archivePath);
