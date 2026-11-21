@@ -1381,6 +1381,92 @@ jobs:
           export CHROME_PATH="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
           node "$RUNNER_TEMP/main-psd-smoke/production.mjs"
 
+      - name: One-shot synthetic two-layer diagnostic for production visual planner
+        if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[studio-probe-2layer]') }}
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs/promises';
+          import { createHash } from 'node:crypto';
+          const image='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO/Vdr0AAAAASUVORK5CYII=';
+          const layers=['body','highlight'].map(id=>({id,image,bounds:{x:0,y:0,width:1,height:1}}));
+          const input={image,layers,description:'Two rigidly connected layers move together in a small controlled bounce: anticipation, rise, short hold, settle.',instructions:'Preserve exact two-layer inventory, source pixels, frame-zero pose and draw order. Use numeric keyframes. Do not invent anatomy or extra parts.'};
+          const endpoint='https://spine-studio.spine-animator-f8692224.workers.dev/api/plan';
+          const headers={origin:'https://spineanimator.github.io','content-type':'application/json'};
+          const summary=process.env.GITHUB_STEP_SUMMARY;
+          let response, raw='';
+          try {
+            response=await fetch(endpoint,{method:'POST',headers,body:JSON.stringify(input),signal:AbortSignal.timeout(22000)});
+            raw=await response.text();
+          } catch(error) {
+            const entry={status:'NO_HTTP_RESPONSE',error:String(error?.message||error)};
+            console.log('SYNTHETIC_2LAYER_STUDIO_DIAGNOSTIC',JSON.stringify(entry));
+            await fs.appendFile(summary,'\n### Synthetic 2-layer production planner\n\n`NO_HTTP_RESPONSE` — '+entry.error.replace(/`/g,"'")+'\n');
+            process.exit(0);
+          }
+          let data={}; try { data=JSON.parse(raw); } catch {}
+          const diagnostic={status:response.status,ok:response.ok,errorCode:data.error?.code||null,
+            errorMessage:String(data.error?.message||'').slice(0,500),cfRay:response.headers.get('cf-ray')||null,
+            responseBytes:Buffer.byteLength(raw)};
+          console.log('SYNTHETIC_2LAYER_STUDIO_DIAGNOSTIC',JSON.stringify(diagnostic));
+          if(!response.ok) {
+            await fs.appendFile(summary,'\n### Synthetic 2-layer production planner\n\n- HTTP: **'+response.status+'**\n- Error code: `'+(diagnostic.errorCode||'none')+'`\n- Error message: '+(diagnostic.errorMessage||'none')+'\n- Cloudflare ray: `'+(diagnostic.cfRay||'none')+'`\n- Exporter called: **no**\n\nThis is a production service failure diagnostic, not an animation PASS.\n');
+            process.exit(0);
+          }
+          const scene=data.scene,validation=data.validation;
+          if(!scene||!Array.isArray(scene.nodes)||!Array.isArray(scene.clips)||!scene.clips.length||
+             validation?.initialPosePreserved!==true||validation?.drawOrderPreserved!==true||validation?.sourceLayers!==2)
+            throw new Error('Planner returned a 2-layer scene without required source-preservation validation');
+          const order=(scene.drawOrder||[]).map(id=>scene.nodes.find(node=>node.id===id)).filter(node=>node?.asset).map(node=>node.asset);
+          if(order.join('|')!=='body|highlight') throw new Error('Planner changed the original two-layer draw order: '+JSON.stringify(order));
+          console.log('SYNTHETIC_2LAYER_VALID_PLAN',JSON.stringify({nodes:scene.nodes.length,clips:scene.clips.length,sourceLayers:validation.sourceLayers,drawOrder:order}));
+          const build=await fetch('https://spine-generator.spine-animator-f8692224.workers.dev/api/build',{
+            method:'POST',headers,body:JSON.stringify({canvas:{width:1,height:1},layers,scene}),signal:AbortSignal.timeout(20000)});
+          const zip=Buffer.from(await build.arrayBuffer());
+          console.log('SYNTHETIC_2LAYER_BUILD_HTTP',build.status,'bytes',zip.length,'cf-ray',build.headers.get('cf-ray')||'none');
+          if(!build.ok) throw new Error('Spine ZIP builder returned HTTP '+build.status+': '+zip.toString('utf8').slice(0,300));
+          if(zip.length<200||zip.subarray(0,4).toString('hex')!=='504b0304') throw new Error('Production exporter did not return ZIP bytes');
+          const path=process.env.RUNNER_TEMP+'/synthetic-2layer-production.zip';
+          await fs.writeFile(path,zip);
+          const report={status:'VALID_PLAN_AND_ZIP',layers:2,clips:scene.clips.length,zipBytes:zip.length,
+            sha256:createHash('sha256').update(zip).digest('hex'),drawOrder:order};
+          console.log('SYNTHETIC_2LAYER_PLAN_AND_ZIP_PASS',JSON.stringify(report));
+          await fs.appendFile(summary,'\n### Synthetic 2-layer production planner\n\n- Valid source-preserving plan: **PASS**\n- Production ZIP: **'+zip.length+' bytes**\n- SHA-256: `'+report.sha256+'`\n\n');
+          NODE
+          if [ -f "$RUNNER_TEMP/synthetic-2layer-production.zip" ]; then
+            unzip -tq "$RUNNER_TEMP/synthetic-2layer-production.zip"
+            unzip -Z -1 "$RUNNER_TEMP/synthetic-2layer-production.zip" | grep -qx 'skeleton.json'
+            unzip -Z -1 "$RUNNER_TEMP/synthetic-2layer-production.zip" | grep -Eq '^images/.+\.png
+        shell: bash
+        run: |
+          set -euo pipefail
+          for endpoint in \
+            "https://spine-studio.spine-animator-f8692224.workers.dev/api/plan" \
+            "https://spine-generator.spine-animator-f8692224.workers.dev/api/build"; do
+            headers="$(mktemp)"
+            status="$(curl --silent --show-error --retry 3 --retry-delay 2 --max-time 15 \
+              --output /dev/null --dump-header "$headers" \
+              --request OPTIONS \
+              --header 'Origin: https://spineanimator.github.io' \
+              --header 'Access-Control-Request-Method: POST' \
+              --header 'Access-Control-Request-Headers: content-type' \
+              --write-out '%{http_code}' "$endpoint")"
+            if [[ "$status" != 200 && "$status" != 204 ]]; then
+              echo "::error::API preflight HTTP $status for $endpoint"
+              exit 1
+            fi
+            if ! grep -Fiq 'access-control-allow-origin: https://spineanimator.github.io' "$headers"; then
+              echo "::error::Missing canonical Origin permission for $endpoint"
+              exit 1
+            fi
+            echo "API_PREFLIGHT_PASS $endpoint" >> "$GITHUB_STEP_SUMMARY"
+            rm -f "$headers"
+          done
+
+            echo 'SYNTHETIC_2LAYER_INDEPENDENT_ZIP_STRUCTURE_PASS'
+          fi
       - name: Verify cloud animation API preflights
         shell: bash
         run: |
