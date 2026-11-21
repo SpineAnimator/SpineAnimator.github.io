@@ -518,25 +518,25 @@ $("generate").addEventListener("click", generate);
 // Reuse the validated generator and preserved-project ZIP exporter. Never
 // replace the original upload or silently choose an ambiguous Spine region.
 async function doEverything({awaitNative=false}={}) {
-  if (quickBusy) return;
+  if (quickBusy) return {status:"busy"};
   if (!state.source && !state.json && !state.binary) {
     quickPickerArmed = true;
     $("project-files").click();
-    return;
+    return {status:"needs_input",reason:"project"};
   }
   if (state.binary && !state.json) {
     setAgentMode(true);
     status("This binary Spine project needs the native Bridge or an exported JSON with images.", true);
-    return;
+    return {status:"needs_bridge",reason:"binary_spine_project"};
   }
   if (state.json && !state.selectedChoiceIndexes.size) {
     $("do-all").textContent = "Select an item";
-    return;
+    return {status:"needs_selection",selectableObjects:agentGetSelectableObjects()};
   }
   if (!state.json && !state.source) {
     setAgentMode(true);
     status("Select a source image first.", true);
-    return;
+    return {status:"needs_input",reason:"source_image"};
   }
   quickBusy = true;
   const button = $("do-all");
@@ -555,10 +555,12 @@ async function doEverything({awaitNative=false}={}) {
     status("Complete Spine ZIP saved locally. Queuing licensed Linux verification…");
     // The SA Agent can await the complete native roundtrip; the UI button stays responsive.
     if(awaitNative) await verifyLinuxZip(zip); else void verifyLinuxZip(zip);
+    return {status:state.linuxCI?.status||"exported",zipBytes:zip.length,linux:state.linuxCI||{status:"queued"}};
   } catch (error) {
     state.actionErrorLabel = /continuous selected slot range|consecutive group/i.test(error.message) ? "Select consecutive slots" : "Mask failed";
     status("Automatic mask export failed: " + error.message, true);
     state.linuxCI={status:"failed",error:String(error?.message||error)};
+    return {status:"failed",error:String(error?.message||error),linux:state.linuxCI};
   } finally {
     quickBusy = false;
     button.disabled = false;
@@ -566,7 +568,7 @@ async function doEverything({awaitNative=false}={}) {
   }
 }
 async function verifyLinuxZip(zip=null){
-  if(linuxVerifyBusy)return;
+  if(linuxVerifyBusy)return state.linuxCI||{status:"busy"};
   linuxVerifyBusy=true;
   const control=$("linux-verify");
   control.disabled=true;
