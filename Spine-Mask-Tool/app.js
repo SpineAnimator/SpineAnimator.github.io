@@ -539,6 +539,7 @@ async function doEverything({awaitNative=false}={}) {
     return {status:"needs_input",reason:"source_image"};
   }
   quickBusy = true;
+  state.linuxCI={status:"preparing"};
   const button = $("do-all");
   button.disabled = true;
   button.textContent = "Creating…";
@@ -581,6 +582,7 @@ async function verifyLinuxZip(zip=null){
     const link=$("linux-result-link");
     link.hidden=true;
     if(linuxResultUrl){URL.revokeObjectURL(linuxResultUrl);linuxResultUrl=null;}
+    state.linuxCI={status:"uploading"};
     status("Uploading full Spine ZIP to private Linux CI (up to 64 MiB)…");
     const job=await submitSpineProject(zip,(state.base||"spine")+"-mask.zip");
     state.linuxCI={id:job.id,status:"queued"};
