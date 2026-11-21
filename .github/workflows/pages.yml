@@ -823,6 +823,144 @@ jobs:
           } finally {await browser.close();}
           NODE
           node "$RUNNER_TEMP/mask-smoke/smoke.mjs"
+      - name: Browser E2E — live PSD link, real PSD file upload, responsive composer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/main-psd-smoke"
+          cat > "$RUNNER_TEMP/main-psd-smoke/smoke.mjs" <<'NODE'
+          import assert from 'node:assert/strict';
+          import { createHash } from 'node:crypto';
+          import { chromium } from 'playwright';
+
+          const origin='https://spineanimator.github.io';
+          const approved='https://files.catbox.moe/clgb71.psd';
+          const sourceApi='https://spine-generator.spine-animator-f8692224.workers.dev/api/psd-source';
+          const expected={bytes:4485543,sha256:'7adee866547a3b3cc9838b655cf70865980c5dba00313373cbf903fed776c7b2'};
+          const sourceResponse=await fetch(sourceApi+'?url='+encodeURIComponent(approved),{
+            headers:{origin},redirect:'error',signal:AbortSignal.timeout(25000)
+          });
+          assert.equal(sourceResponse.status,200,'approved real PSD must be available from production source API');
+          const psd=Buffer.from(await sourceResponse.arrayBuffer());
+          assert.equal(psd.length,expected.bytes,'production PSD size mismatch');
+          assert.equal(createHash('sha256').update(psd).digest('hex'),expected.sha256,'production PSD digest mismatch');
+          assert.equal(psd.subarray(0,6).toString('binary'),'8BPS\\0\\1','invalid real PSD header');
+
+          const opts={headless:true,args:['--no-sandbox','--disable-dev-shm-usage']};
+          if(process.env.CHROME_PATH)opts.executablePath=process.env.CHROME_PATH;
+          const browser=await chromium.launch(opts);
+          const errors=[];
+          const sourceRequests=[];
+          const planRequests=[];
+          async function newPage(){
+            const page=await browser.newPage({viewport:{width:375,height:820}});
+            page.on('pageerror',e=>errors.push(e.message));
+            page.on('request',r=>{
+              if(r.url().includes('/api/psd-source'))sourceRequests.push(r.url());
+              if(r.url().endsWith('/api/plan'))planRequests.push(r.postDataJSON());
+            });
+            await page.route('https://spine-studio.spine-animator-f8692224.workers.dev/**',async route=>{
+              const req=route.request();
+              const cors={'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Methods':'POST,OPTIONS',
+                'Access-Control-Allow-Headers':'content-type'};
+              if(req.method()==='OPTIONS'){await route.fulfill({status:204,headers:cors});return;}
+              assert.equal(new URL(req.url()).pathname,'/api/plan');
+              await route.fulfill({status:200,headers:{...cors,'Content-Type':'application/json'},
+                body:JSON.stringify({scene:{clips:[{id:'smoke-idle',duration:1,tracks:[]}]},
+                  validation:{initialPosePreserved:true,drawOrderPreserved:true}})});
+            });
+            await page.route('https://spine-generator.spine-animator-f8692224.workers.dev/api/build',async route=>{
+              const cors={'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Methods':'POST,OPTIONS',
+                'Access-Control-Allow-Headers':'content-type'};
+              if(route.request().method()==='OPTIONS'){await route.fulfill({status:204,headers:cors});return;}
+              await route.fulfill({status:200,headers:{...cors,'Content-Type':'application/zip'},
+                body:Buffer.from([0x50,0x4b,0x03,0x04,0x00,0x00,0x00,0x00])});
+            });
+            const response=await page.goto(origin+'/?psd-ui-smoke='+Date.now(),{waitUntil:'load',timeout:45000});
+            assert.equal(response.status(),200,'public website must return HTTP 200');
+            await page.waitForFunction(()=>!!window.agPsd?.readPsd,{timeout:30000});
+            return page;
+          }
+          async function checkLayout(page){
+            for(const width of [375,768,1280]){
+              await page.setViewportSize({width,height:820});
+              const result=await page.evaluate(()=>{
+                const ids=['source-url','file-drop','generate'];
+                const rects=ids.map(id=>document.getElementById(id).getBoundingClientRect());
+                const group=document.querySelector('.url-row.chat-source-actions').getBoundingClientRect();
+                return {tops:rects.map(r=>r.top),lefts:rects.map(r=>r.left),rights:rects.map(r=>r.right),
+                  groupRight:group.right,groupLeft:group.left,labels:[
+                    document.getElementById('source-url').placeholder,
+                    document.querySelector('#file-drop span').textContent.trim(),
+                    document.querySelector('#generate span').textContent.trim()]};
+              });
+              assert.deepEqual(result.labels,['Paste link','Add PSD','Animate']);
+              assert.ok(Math.max(...result.tops)-Math.min(...result.tops)<2,'composer controls wrapped at '+width+'px');
+              assert.ok(result.lefts[0]<result.lefts[1]&&result.lefts[1]<result.lefts[2],
+                'composer control order changed at '+width+'px');
+              assert.ok(result.rights[2]<=result.groupRight+1,'Animate overflows composer at '+width+'px');
+              assert.ok(result.rights[0]<=result.lefts[1],'link overlaps Add PSD at '+width+'px');
+            }
+          }
+          async function runSource(page,mode){
+            await page.locator('#prompt').fill('Preserve the source pose and create a short idle animation');
+            if(mode==='link'){
+              await page.locator('#source-url').fill(approved);
+              await page.locator('#source-url').dispatchEvent('change');
+            }else{
+              await page.locator('#source-file').setInputFiles({
+                name:'clgb71.psd',mimeType:'image/vnd.adobe.photoshop',buffer:psd
+              });
+            }
+            await page.locator('#generate').click();
+            await page.waitForFunction(()=>document.getElementById('status')?.textContent.includes('ZIP ready'),
+              null,{timeout:90000});
+            const state=await page.evaluate(()=>({
+              layers:Number(document.getElementById('layer-count').textContent),
+              dimensions:document.getElementById('source-size').textContent,
+              sourceName:document.getElementById('source-name').textContent,
+              previewVisible:!document.getElementById('source-preview').hidden,
+              downloadVisible:!document.getElementById('download').hidden,
+              status:document.getElementById('status').textContent
+            }));
+            assert.ok(state.layers>0,mode+' PSD parsed without visible layers');
+            assert.match(state.dimensions,/\\d+ × \\d+/);
+            assert.equal(state.previewVisible,true,mode+' PSD preview missing');
+            assert.equal(state.downloadVisible,true,mode+' did not reach ZIP export');
+            assert.match(state.status,/ZIP ready/);
+            assert.equal(planRequests.length>=1,true,mode+' did not reach planner');
+            const plan=planRequests.at(-1);
+            assert.ok(Array.isArray(plan.layers)&&plan.layers.length===state.layers,
+              mode+' planner payload did not preserve parsed layer list');
+            assert.equal(plan.validation,undefined,'validation must be produced by the planner, not client');
+            return state;
+          }
+          try{
+            const layoutPage=await newPage();
+            await checkLayout(layoutPage);
+            await layoutPage.close();
+
+            const linkPage=await newPage();
+            const link=await runSource(linkPage,'link');
+            assert.ok(sourceRequests.some(url=>decodeURIComponent(url).includes('clgb71.psd')),
+              'link mode did not request the approved PSD source through the production source API');
+            await linkPage.close();
+
+            const filePage=await newPage();
+            const before=sourceRequests.length;
+            const file=await runSource(filePage,'file');
+            assert.equal(sourceRequests.length,before,'local file upload unexpectedly used remote URL source API');
+            assert.equal(file.sourceName,'clgb71.psd');
+            await filePage.close();
+
+            assert.deepEqual(errors,[],'browser runtime errors occurred');
+            console.log('MAIN_COMPOSER_RESPONSIVE_ONE_ROW_PASS');
+            console.log('REAL_PSD_LINK_TO_PLANNER_AND_ZIP_PASS',link);
+            console.log('REAL_PSD_FILE_UPLOAD_TO_PLANNER_AND_ZIP_PASS',file);
+          }finally{await browser.close();}
+          NODE
+          export CHROME_PATH="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          node "$RUNNER_TEMP/main-psd-smoke/smoke.mjs"
       - name: Verify cloud animation API preflights
         shell: bash
         run: |
