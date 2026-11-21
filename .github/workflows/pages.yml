@@ -40,6 +40,23 @@ jobs:
           node --input-type=module --check < Spine-Mask-Tool/core.js
           node --input-type=module --check < Spine-Mask-Tool/app.js
           node --input-type=module --check < Spine-Mask-Tool/linux-api.js
+          node --input-type=module <<'LANGCHECK'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs';
+          const files = [
+            'Spine-Mask-Tool/index.html',
+            'Spine-Mask-Tool/app.js',
+            'Spine-Mask-Tool/core.js',
+            'Spine-Mask-Tool/linux-api.js'
+          ];
+          for (const file of files) {
+            const source = fs.readFileSync(file, 'utf8');
+            assert.doesNotMatch(source, /[\\u0400-\\u04FF]/u, file + ' contains Cyrillic text');
+          }
+          const html = fs.readFileSync('Spine-Mask-Tool/index.html', 'utf8');
+          assert.match(html, /<html lang="en">/);
+          console.log('MASK_TOOL_ENGLISH_ONLY_SOURCE_PASS');
+          LANGCHECK
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
           import fs from 'node:fs';
