@@ -878,7 +878,7 @@ jobs:
             page.on('pageerror',e=>errors.push(e.message));
             page.on('console',m=>consoleMessages.push(m.type()+': '+m.text()));
             page.on('requestfailed',r=>failedRequests.push({url:r.url(),error:r.failure()?.errorText||''}));
-            page.on('response',r=>{if(/\\/(?:app\\.js|bundle\\.js)(?:\\?|$)/.test(r.url()))appResponses.push({url:r.url(),status:r.status()});});
+            page.on('response',r=>{const path=new URL(r.url()).pathname;if(path.endsWith('/app.js')||path.endsWith('/bundle.js'))appResponses.push({url:r.url(),status:r.status()});});
             page.on('request',r=>{
               if(r.url().includes('/api/psd-source'))sourceRequests.push(r.url());
               if(r.method()==='POST'&&r.url().endsWith('/api/plan'))planRequests.push(r.postDataJSON());
@@ -1024,6 +1024,7 @@ jobs:
             console.log('REAL_PSD_FILE_UPLOAD_TO_PLANNER_AND_ZIP_PASS',file);
           }finally{await browser.close();}
           NODE
+          node --check "$RUNNER_TEMP/main-psd-smoke/smoke.mjs"
           export CHROME_PATH="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
           node "$RUNNER_TEMP/main-psd-smoke/smoke.mjs"
       - name: Verify cloud animation API preflights
