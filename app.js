@@ -244,6 +244,230 @@
         manifest.artisticApproval !== 'pending' || manifest.releaseReady !== false ||
         manifest.nativeSpineEditorFile !== false)
       throw Error('ZIP manifest does not certify the expected source-preserving pending export.');
+    // Reduce the exporter's dense 30 FPS bake to a bounded, data-driven set
+    // of keys. Static channels are unnecessary in Spine; moving channels are
+    // simplified with Ramer-Douglas-Peucker under property-specific tolerances.
+    const keyframeOptimization = (() => {
+      const tolerances = { translate: 0.25, rotate: 0.25, scale: 0.005, shear: 0.25,
+        rgba: 1 / 255, rgb: 1 / 255, rgba2: 1 / 255, rgb2: 1 / 255 };
+      const maxKeysPerTimeline = 12;
+      const maxTotalKeys = Math.min(6000,
+        Math.max(300, source.layers.length * plannedClips.length * 5 * maxKeysPerTimeline));
+      const countKeys = () => {
+        let total = 0;
+        for (const animation of Object.values(skeleton.animations || {})) {
+          for (const groupName of ['bones', 'slots']) {
+            for (const timelines of Object.values(animation[groupName] || {}))
+              for (const frames of Object.values(timelines || {}))
+                if (Array.isArray(frames)) total += frames.length;
+          }
+          if (Array.isArray(animation.drawOrder)) total += animation.drawOrder.length;
+        }
+        return total;
+      };
+      const sourceKeys = countKeys();
+      function frameVector(frame, property) {
+        if (property === 'attachment')
+          return [String(frame.name ?? frame.attachment ?? '')];
+        if (['rgba', 'rgb', 'rgba2', 'rgb2'].includes(property)) {
+          const values = [];
+          for (const field of ['color', 'light', 'dark']) {
+            const raw = frame[field];
+            if (typeof raw !== 'string') continue;
+            const hex = raw.replace(/^#/, '');
+            if (!/^[0-9a-f]{6}(?:[0-9a-f]{2})?$/i.test(hex)) continue;
+            for (let i = 0; i < hex.length; i += 2)
+              values.push(parseInt(hex.slice(i, i + 2), 16) / 255);
+          }
+          return values.length ? values : null;
+        }
+        const values = Object.entries(frame)
+          .filter(([key, value]) => !['time', 'curve', 'c2', 'c3'].includes(key) &&
+            typeof value === 'number' && Number.isFinite(value))
+          .map(([, value]) => value);
+        return values.length ? values : null;
+      }
+      function simplifyTimeline(frames, property) {
+        if (!Array.isArray(frames) || frames.length < 2)
+          return { frames: null, removed: Array.isArray(frames) ? frames.length : 0 };
+        const vectors = frames.map(frame => frameVector(frame, property));
+        if (vectors.some(vector => !vector) ||
+            vectors.some(vector => vector.length !== vectors[0].length))
+          return { frames, removed: 0 };
+        const same = vectors.every(vector => vector.every((value, index) =>
+          Math.abs(value - vectors[0][index]) <= 1e-9));
+        if (same) return { frames: null, removed: frames.length };
+        if (frames.some(frame => frame.curve !== undefined ||
+            frame.c2 !== undefined || frame.c3 !== undefined))
+          return { frames, removed: 0 };
+        if (property === 'attachment') {
+          const reduced = frames.filter((frame, index) => index === 0 ||
+            JSON.stringify(frameVector(frame, property)) !==
+              JSON.stringify(frameVector(frames[index - 1], property)));
+          return { frames: reduced, removed: frames.length - reduced.length };
+        }
+        const times = frames.map((frame, index) =>
+          Number.isFinite(frame.time) ? frame.time : (index === 0 ? 0 : NaN));
+        if (times.some(time => !Number.isFinite(time)) ||
+            times.some((time, index) => index > 0 && time <= times[index - 1]))
+          return { frames, removed: 0 };
+        function rdp(tolerance) {
+          const keep = new Set([0, frames.length - 1]);
+          function reduce(start, end) {
+            if (end <= start + 1) return;
+            const first = vectors[start], last = vectors[end];
+            const span = times[end] - times[start];
+            let maximumError = tolerance, maximumIndex = -1;
+            for (let index = start + 1; index < end; index++) {
+              const ratio = (times[index] - times[start]) / span;
+              let error = 0;
+              for (let component = 0; component < first.length; component++) {
+                const expected = first[component] +
+                  (last[component] - first[component]) * ratio;
+                error = Math.max(error, Math.abs(vectors[index][component] - expected));
+              }
+              if (error > maximumError) {
+                maximumError = error;
+                maximumIndex = index;
+              }
+            }
+            if (maximumIndex >= 0) {
+              keep.add(maximumIndex);
+              reduce(start, maximumIndex);
+              reduce(maximumIndex, end);
+            }
+          }
+          reduce(0, frames.length - 1);
+          return Array.from(keep).sort((a, b) => a - b);
+        }
+        let tolerance = tolerances[property] ?? 0.001;
+        let indices = rdp(tolerance);
+        for (let attempt = 0; indices.length > maxKeysPerTimeline && attempt < 48; attempt++) {
+          tolerance *= 2;
+          indices = rdp(tolerance);
+        }
+        if (indices.length > maxKeysPerTimeline)
+          throw Error('Spine keyframe budget exceeded for ' + property +
+            ': ' + indices.length + ' keys (limit ' + maxKeysPerTimeline + ')');
+        return { frames: indices.map(index => frames[index]),
+          removed: frames.length - indices.length };
+      }
+      let removedTimelines = 0;
+      for (const animation of Object.values(skeleton.animations || {})) {
+        for (const groupName of ['bones', 'slots']) {
+          const group = animation[groupName];
+          if (!group || typeof group !== 'object') continue;
+          for (const [name, timelines] of Object.entries(group)) {
+            for (const [property, frames] of Object.entries(timelines)) {
+              const reduced = simplifyTimeline(frames, property);
+              if (!reduced.frames) {
+                delete timelines[property];
+                removedTimelines++;
+              } else timelines[property] = reduced.frames;
+            }
+            if (!Object.keys(timelines).length) delete group[name];
+          }
+          if (!Object.keys(group).length) delete animation[groupName];
+        }
+      }
+      const retainedKeys = countKeys();
+      if (retainedKeys > maxTotalKeys)
+        throw Error('Spine animation exceeds the total keyframe budget: ' +
+          retainedKeys + ' > ' + maxTotalKeys);
+      const summary = {
+        algorithm: 'Ramer-Douglas-Peucker',
+        sourceKeys,
+        retainedKeys,
+        removedKeys: sourceKeys - retainedKeys,
+        reductionPercent: sourceKeys ? Number(((sourceKeys - retainedKeys) / sourceKeys * 100).toFixed(2)) : 0,
+        maxKeysPerTimeline,
+        maxTotalKeys,
+        removedStaticTimelines: removedTimelines,
+        tolerances: { translatePx: tolerances.translate, rotationDegrees: tolerances.rotate,
+          scale: tolerances.scale, shearDegrees: tolerances.shear, colorChannel: tolerances.rgba }
+      };
+      if (!manifest.sceneBake || typeof manifest.sceneBake !== 'object')
+        throw Error('ZIP manifest is missing scene bake metadata.');
+      manifest.sceneBake.keyCount = retainedKeys;
+      manifest.sceneBake.keyframeOptimization = summary;
+      if (manifest.sceneBake.motionAudit && typeof manifest.sceneBake.motionAudit === 'object')
+        manifest.sceneBake.motionAudit.note =
+          String(manifest.sceneBake.motionAudit.note || '') +
+          ' Export keys were simplified with bounded RDP tolerances; this is not artistic approval.';
+      files.set('skeleton.json', new TextEncoder().encode(JSON.stringify(skeleton)));
+      files.set('manifest.json', new TextEncoder().encode(JSON.stringify(manifest)));
+      return summary;
+    })();
+    function packStoredZip(entries) {
+      const encoder = new TextEncoder();
+      const localParts = [], centralParts = [];
+      let localOffset = 0, centralSize = 0;
+      for (const [name, raw] of entries) {
+        const nameBytes = encoder.encode(name);
+        const data = raw instanceof Uint8Array ? raw :
+          new Uint8Array(raw.buffer || raw, raw.byteOffset || 0, raw.byteLength || raw.length);
+        if (!nameBytes.length || nameBytes.length > 65535 || data.byteLength > 0xffffffff)
+          throw Error('Optimized ZIP entry exceeds supported size: ' + name);
+        const crc = crc32(data);
+        const local = new Uint8Array(30 + nameBytes.length + data.byteLength);
+        const lv = new DataView(local.buffer);
+        lv.setUint32(0, 0x04034b50, true);
+        lv.setUint16(4, 20, true);
+        lv.setUint16(6, 0, true);
+        lv.setUint16(8, 0, true);
+        lv.setUint16(10, 0, true);
+        lv.setUint16(12, 0, true);
+        lv.setUint32(14, crc, true);
+        lv.setUint32(18, data.byteLength, true);
+        lv.setUint32(22, data.byteLength, true);
+        lv.setUint16(26, nameBytes.length, true);
+        lv.setUint16(28, 0, true);
+        local.set(nameBytes, 30);
+        local.set(data, 30 + nameBytes.length);
+        localParts.push(local);
+        const central = new Uint8Array(46 + nameBytes.length);
+        const cv = new DataView(central.buffer);
+        cv.setUint32(0, 0x02014b50, true);
+        cv.setUint16(4, 20, true);
+        cv.setUint16(6, 20, true);
+        cv.setUint16(8, 0, true);
+        cv.setUint16(10, 0, true);
+        cv.setUint16(12, 0, true);
+        cv.setUint16(14, 0, true);
+        cv.setUint32(16, crc, true);
+        cv.setUint32(20, data.byteLength, true);
+        cv.setUint32(24, data.byteLength, true);
+        cv.setUint16(28, nameBytes.length, true);
+        cv.setUint16(30, 0, true);
+        cv.setUint16(32, 0, true);
+        cv.setUint16(34, 0, true);
+        cv.setUint16(36, 0, true);
+        cv.setUint32(38, 0, true);
+        cv.setUint32(42, localOffset, true);
+        central.set(nameBytes, 46);
+        centralParts.push(central);
+        localOffset += local.byteLength;
+        centralSize += central.byteLength;
+      }
+      if (entries.size > 65535 || localOffset > 0xffffffff || centralSize > 0xffffffff)
+        throw Error('Optimized ZIP exceeds classic ZIP directory limits.');
+      const end = new Uint8Array(22);
+      const ev = new DataView(end.buffer);
+      ev.setUint32(0, 0x06054b50, true);
+      ev.setUint16(4, 0, true);
+      ev.setUint16(6, 0, true);
+      ev.setUint16(8, entries.size, true);
+      ev.setUint16(10, entries.size, true);
+      ev.setUint32(12, centralSize, true);
+      ev.setUint32(16, localOffset, true);
+      ev.setUint16(20, 0, true);
+      const output = new Uint8Array(localOffset + centralSize + end.byteLength);
+      let offset = 0;
+      for (const part of localParts) { output.set(part, offset); offset += part.byteLength; }
+      for (const part of centralParts) { output.set(part, offset); offset += part.byteLength; }
+      output.set(end, offset);
+      return output.buffer;
+    }
     const expectedAnimations = plannedClips.map(clip => clip.id).sort();
     const animationEntries = Object.entries(skeleton.animations);
     const actualAnimations = animationEntries.map(entry => entry[0]).sort();
@@ -303,8 +527,10 @@
       if (moving.length === before)
         throw Error('Static Spine animation rejected: "' + name + '" has no changing transform keys.');
     }
-    return { animationNames: actualAnimations, movingTimelines: moving,
-      zipEntries: files.size, textureFiles: textureNames, manifest };
+    const optimizedBytes = packStoredZip(files);
+    return { report: { animationNames: actualAnimations, movingTimelines: moving,
+      zipEntries: files.size, textureFiles: textureNames, manifest, keyframeOptimization },
+      bytes: optimizedBytes };
   }
 
   function aiSchemaError(message) {
@@ -679,7 +905,9 @@
       const sig = new Uint8Array(result.bytes, 0, 4);
       if (sig.length < 4 || sig[0] !== 80 || sig[1] !== 75 || sig[2] !== 3 || sig[3] !== 4)
         throw Error('Server did not return a valid ZIP header');
-      const animationAudit = await inspectSpineZip(result.bytes, plan.scene.clips, source);
+      const optimizedAudit = await inspectSpineZip(result.bytes, plan.scene.clips, source);
+      result.bytes = optimizedAudit.bytes;
+      const animationAudit = optimizedAudit.report;
       console.info('SPINE_ANIMATION_CONTENT_AUDIT', animationAudit);
       downloadURL = URL.createObjectURL(new Blob([result.bytes], { type: 'application/zip' }));
       $('download').href = downloadURL;
