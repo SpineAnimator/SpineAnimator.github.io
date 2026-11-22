@@ -120,7 +120,7 @@ jobs:
               const bytes=body!==null?new TextEncoder().encode(body).buffer:
                 zip.buffer.slice(zip.byteOffset,zip.byteOffset+zip.byteLength);
               return {ok:true,headers:{get:()=>null},arrayBuffer:async()=>bytes};
-            }};
+            }})}}};
           vm.runInNewContext(source,context,{filename:'app.js'});
           const create=element('generate').handlers.click[0];
           element('prompt').value='Create a calm idle animation';
