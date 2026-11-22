@@ -1383,7 +1383,7 @@ jobs:
       # Re-run the bounded clgb71 real-PSD test against planner-v2 after 38-layer ZIP and official Editor CLI validation.
       # Retry clgb71 against planner-v2.3 with composite plus top-12 layer images and provider error diagnostics.
       # Retry real PSD against planner-v2.5 after optional contact-sheet validation was made non-fatal.
-      # Explicitly opt-in via [prod-psd-e2e]: one real 38-layer PSD request, original-canvas fidelity and transform/slot-color timeline ZIP validation.
+      # Explicitly opt-in via [prod-psd-e2e]: one real 38-layer PSD request, original-canvas fidelity, motion-error key reduction and 50k key-budget ZIP validation.
       - name: Production clgb71 AI planner and Spine ZIP E2E (single bounded request)
         if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[prod-psd-e2e]') }}
         timeout-minutes: 22
@@ -1532,6 +1532,21 @@ jobs:
               const zip=readFileSync(zipPath);
               assert.deepEqual([...zip.subarray(0,4)],[0x50,0x4b,0x03,0x04],'production export must be a ZIP');
               execFileSync('unzip',['-t',zipPath],{stdio:'pipe'});
+              const manifest=JSON.parse(execFileSync('unzip',['-p',zipPath,'manifest.json'],{encoding:'utf8'}));
+              const skeleton=JSON.parse(execFileSync('unzip',['-p',zipPath,'skeleton.json'],{encoding:'utf8'}));
+              const sceneBake=manifest.sceneBake||{};
+              const countTimelines=group=>Object.values(group||{}).reduce((sum,tracks)=>
+                sum+Object.values(tracks||{}).reduce((n,keys)=>n+(Array.isArray(keys)?keys.length:0),0),0);
+              const actualKeyCount=Object.values(skeleton.animations||{}).reduce((sum,animation)=>
+                sum+countTimelines(animation.bones)+countTimelines(animation.slots)+(animation.drawOrder?.length||0),0);
+              assert.equal(sceneBake.sampling?.method,'motion-error-rdp','production export must use motion-error keyframe reduction');
+              assert.equal(sceneBake.keyframePolicy?.maxKeys,50000,'production export must enforce the global 50,000-key budget');
+              assert.ok(Number.isInteger(sceneBake.keyCount)&&sceneBake.keyCount<=500,
+                '38-layer clgb71 production scene should stay within 500 meaningful keys; got '+sceneBake.keyCount);
+              assert.equal(actualKeyCount,sceneBake.keyCount,'manifest key count must match actual Spine JSON timelines');
+              assert.ok(sceneBake.sampling.reductionRatio>=0.8,'production sampling should remove at least 80% of redundant frames');
+              assert.ok(Object.values(sceneBake.sampling.exportedFrames||{}).every(n=>n<=5),
+                'authored three-beat clips should not expand into dozens of exported keys');
               const entries=execFileSync('unzip',['-Z1',zipPath],{encoding:'utf8'})
                 .split(/\r?\n/).map(x=>x.trim()).filter(Boolean);
               assert.ok(entries.some(x=>/\.json$/i.test(x)),'ZIP must contain a Spine JSON project');
@@ -1539,7 +1554,8 @@ jobs:
               assert.ok(entries.some(x=>/\.png$/i.test(x)),'ZIP must contain raster attachments');
               const digest=createHash('sha256').update(zip).digest('hex');
               const report={bytes:zip.length,sha256:digest,entries:entries.length,
-                pngs:entries.filter(x=>/\.png$/i.test(x)).length,
+                pngs:entries.filter(x=>/\.png$/i.test(x)).length,keyCount:sceneBake.keyCount,
+                keyframePolicy:sceneBake.keyframePolicy,sampling:sceneBake.sampling,
                 planRequests:planRequests.length,buildRequests:buildRequests.length,responses};
               diagnostics.zip=report;
               writeFileSync(diagnosticsPath,JSON.stringify(diagnostics,null,2));
