@@ -968,8 +968,12 @@ jobs:
             const skeleton={skeleton:{hash:'ci-smoke',spine:'4.3.26',width:request.canvas?.width||1,
               height:request.canvas?.height||1,images:'./images/',audio:'./audio'},
               bones,slots,skins:[{name:'default',attachments:{}}],animations};
-            const atlas=['smoke.png','size:1024,1024','format:RGBA8888','filter:Linear,Linear','repeat:none','',
-              ...layers.flatMap(layer=>[layer.id,'  bounds:0,0,'+(layer.bounds?.width||1)+','+(layer.bounds?.height||1),''])].join('\\n');
+            const atlas=layers.flatMap(layer=>[
+              'images/'+layer.id+'.png','size:1024,1024','format:RGBA8888','filter:Linear,Linear','repeat:none','',
+              layer.id,'  bounds:0,0,'+(layer.bounds?.width||1)+','+(layer.bounds?.height||1),
+              '  offsets:0,0,'+(layer.bounds?.width||1)+','+(layer.bounds?.height||1),
+              '  rotate:false','  index:-1',''
+            ]).join('\\n');
             const manifest={backend:'2spine-cloud-executor',spine:'4.3.26',layerCount:layers.length,
               clipCount:clips.length,validation:{setupPreserved:true,drawOrderPreserved:true,frameZeroPreserved:true},
               renderEvidence:{status:'not-rendered',frameCount:0},artisticApproval:'pending',
