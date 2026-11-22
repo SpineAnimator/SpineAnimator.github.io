@@ -37,19 +37,16 @@ jobs:
           import fs from 'node:fs';
           const app=fs.readFileSync('Spine-Mask-Tool/app.js','utf8');
           const required=[
-            'loadFiles:files=>importProjectFiles(files,true)',
-            'runFullWorkflow:()=>doEverything({awaitNative:true,download:false})',
-            'status:"needs_input"',
-            'status:"needs_selection"',
-            'status:"needs_bridge"',
-            'status:"busy"',
-            'return {status:"ready",artifact,jobId:job.id,linux',
+            'loadFiles:async files=>importProjectFiles(files,true)',
+            'getSelectableObjects:()=>state.treeChoices.map',
+            'setSelectedObjects:targets=>',
+            'runFullWorkflow:async()=>{',
+            'artifact:{bytes:native.bytes,filename:native.filename}',
+            'id:native.jobId',
             'inputSha256:native.inputSha256',
             'outputSha256:native.outputSha256',
-            'receipt:native.receipt',
-            'linux:native.linux||null',
+            'getLinuxStatus:()=>state.linuxCI||{status:"idle"}',
             'return {status:"failed",error:',
-            'getStatus:()=>getMaskAgentStatus()',
             'if(download)downloadBlob'
           ];
           for(const contract of required)assert.ok(app.includes(contract),'Missing SA API contract: '+contract);
