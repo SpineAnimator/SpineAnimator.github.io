@@ -1367,7 +1367,7 @@ jobs:
           import assert from 'node:assert/strict';
           import { createHash } from 'node:crypto';
           import { execFileSync } from 'node:child_process';
-          import { readFileSync } from 'node:fs';
+          import { readFileSync, writeFileSync } from 'node:fs';
           import { join } from 'node:path';
           import { chromium } from 'playwright';
 
@@ -1480,8 +1480,10 @@ jobs:
             }));
             assert.equal(state.layers,38,'real PSD parser must preserve all 38 source layers');
             assert.equal(state.dimensions,'918 × 657','real PSD canvas dimensions changed');
-            console.log('PRODUCTION_CLGB71_STATUS',JSON.stringify({state,planRequests:planRequests.length,
-              buildRequests:buildRequests.length,responses,failures}));
+            const diagnosticsPath=join(process.env.RUNNER_TEMP,'main-psd-smoke','production-clgb71-diagnostics.json');
+            const diagnostics={state,planRequests:planRequests.length,buildRequests:buildRequests.length,responses,failures};
+            writeFileSync(diagnosticsPath,JSON.stringify(diagnostics,null,2));
+            console.log('PRODUCTION_CLGB71_STATUS',JSON.stringify(diagnostics));
 
             if(state.status.startsWith('Generation failed [AI planning]:') &&
                state.status.includes('AI planning failed closed:')){
@@ -1512,6 +1514,8 @@ jobs:
               const report={bytes:zip.length,sha256:digest,entries:entries.length,
                 pngs:entries.filter(x=>/\.png$/i.test(x)).length,
                 planRequests:planRequests.length,buildRequests:buildRequests.length,responses};
+              diagnostics.zip=report;
+              writeFileSync(diagnosticsPath,JSON.stringify(diagnostics,null,2));
               console.log('PRODUCTION_CLGB71_REAL_SPINE_ZIP_VALIDATED',JSON.stringify(report));
               process.exitCode=0;
             }else{
@@ -1524,6 +1528,17 @@ jobs:
           node --check "$RUNNER_TEMP/main-psd-smoke/production.mjs"
           export CHROME_PATH="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
           node "$RUNNER_TEMP/main-psd-smoke/production.mjs"
+
+      - name: Upload production clgb71 ZIP and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-clgb71-e2e
+          path: |
+            ${{ runner.temp }}/main-psd-smoke/production-clgb71.zip
+            ${{ runner.temp }}/main-psd-smoke/production-clgb71-diagnostics.json
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: One-shot synthetic two-layer production planner diagnostic
         if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[studio-probe-2layer]') }}
