@@ -90,6 +90,7 @@ jobs:
           class Observer{observe(){}disconnect(){}}
           class FakeImageData{constructor(data,width,height){this.data=data;this.width=width;this.height=height;}}
           const requests=[];
+          let staticFixture=false;
           const rgba=new Uint8ClampedArray(2*2*4).fill(255);
           const context={document,window:{agPsd:{readPsd:()=>({width:2,height:2,
               imageData:{width:2,height:2,data:rgba},
@@ -102,9 +103,10 @@ jobs:
                 ? JSON.stringify({scene:{clips:[{id:'smoke',duration:1,tracks:[]}]},
                     validation:{initialPosePreserved:true,drawOrderPreserved:true}})
                 : null;
+              const pose=staticFixture?0:12;
               const zip=zipStored('skeleton.json',JSON.stringify({
                 skeleton:{spine:'4.3.26'},bones:[{name:'root'}],slots:[],skins:[],
-                animations:{smoke:{bones:{root:{translate:[{x:0,y:0},{time:1,x:0,y:12}]}}}}
+                animations:{smoke:{bones:{root:{translate:[{x:0,y:0},{time:1,x:0,y:pose}]}}}}
               }));
               const bytes=body!==null?new TextEncoder().encode(body).buffer:
                 zip.buffer.slice(zip.byteOffset,zip.byteOffset+zip.byteLength);
@@ -124,11 +126,17 @@ jobs:
           const valid=new Uint8Array(26);
           valid.set([0x38,0x42,0x50,0x53,0,1]);
           element('source-file').files=[{name:'smoke.psd',size:valid.byteLength,arrayBuffer:async()=>valid.buffer}];
+          staticFixture=true;
           await create();
-          assert.match(element('status').textContent,/ZIP ready/,'valid local PSD must reach ZIP export');
+          assert.match(element('status').textContent,/Static Spine animation rejected/,
+            'static Spine timelines must be rejected before a download is exposed');
+          assert.equal(element('download').hidden,true,'static animation must not expose a ZIP');
+          staticFixture=false;
+          await create();
+          assert.match(element('status').textContent,/ZIP ready/,'genuinely animated local PSD must reach ZIP export');
           assert.equal(element('download').hidden,false,'successful PSD processing must expose download');
           assert.equal(element('download').href,'blob:psd-upload-smoke');
-          assert.deepEqual(requests.map(x=>x.method),['POST','POST']);
+          assert.deepEqual(requests.map(x=>x.method),['POST','POST','POST','POST']);
           assert.ok(requests[0].url.endsWith('/api/plan'),'PSD must reach the planner');
           assert.ok(requests[1].url.endsWith('/api/build'),'planned PSD must reach the ZIP exporter');
           assert.equal(urlConstructions,0,'valid local PSD must never construct a source URL');
