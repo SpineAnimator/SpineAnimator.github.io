@@ -2,6 +2,7 @@
 (() => {
   'use strict';
   const $ = id => document.getElementById(({ create: 'generate', file: 'source-file', url: 'source-url', preview: 'source-preview' })[id] || id);
+  const STUDIO = 'https://spine-studio.spine-animator-f8692224.workers.dev';
   const PLAN_API = 'https://spine-plan-api.spine-animator-f8692224.workers.dev';
   const EXPORTER = 'https://spine-generator.spine-animator-f8692224.workers.dev';
   let downloadURL = null;
@@ -95,7 +96,7 @@
     }
     if (!start?.jobId) throw lastError || Error('AI planner did not accept the job');
 
-    const deadline = Date.now() + 9 * 60 * 1000;
+    const deadline = Date.now() + 20 * 60 * 1000 + 30 * 1000;
     let lastStatusError = null;
     while (Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 2500));
@@ -121,7 +122,7 @@
         message('AI planner status temporarily unavailable; keeping the same job and retrying…');
       }
     }
-    throw Error('AI planning exceeded the 9-minute limit' +
+    throw Error('AI planning exceeded the 20-minute retry window' +
       (lastStatusError ? ': ' + String(lastStatusError.message || lastStatusError).slice(0, 180) : ''));
   }
   async function inspectSpineZip(bytes, plannedClips, source) {
