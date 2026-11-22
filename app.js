@@ -539,8 +539,20 @@
     const psd = parser.readPsd(buffer, { useImageData: true, skipThumbnail: true });
     if (!(psd.width > 0 && psd.height > 0) || psd.width * psd.height > 25000000)
       throw Error('Unsupported PSD dimensions');
-    const composite = canvasOf(psd.imageData || psd.canvas || psd);
-    if (!composite) throw Error('PSD composite is unavailable');
+    // ag-psd may expose a reduced preview in imageData while the parsed
+    // document canvas and layer bounds retain full-resolution coordinates.
+    // Never send a preview to the planner: its scene origin must match the
+    // original PSD canvas used by the ZIP exporter.
+    const compositeCandidates = [psd.imageData, psd.canvas, psd]
+      .map(canvasOf).filter(Boolean);
+    const composite = compositeCandidates.find(candidate =>
+      candidate.width === psd.width && candidate.height === psd.height);
+    if (!composite) {
+      const sizes = compositeCandidates.map(candidate =>
+        candidate.width + '×' + candidate.height).join(', ') || 'none';
+      throw Error('PSD composite dimensions do not match original canvas ' +
+        psd.width + '×' + psd.height + ' (candidates: ' + sizes + ')');
+    }
     const layers = [], sheetItems = [], names = new Set();
     function walk(container, visible = true, opacity = 1) {
       for (const layer of (container.children || []).slice().reverse()) {
