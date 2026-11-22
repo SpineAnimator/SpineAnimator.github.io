@@ -248,6 +248,9 @@
     // of keys. Static channels are unnecessary in Spine; moving channels are
     // simplified with Ramer-Douglas-Peucker under property-specific tolerances.
     const keyframeOptimization = (() => {
+      // Small synthetic ZIPs used by the local browser smoke test intentionally
+      // omit production sceneBake metadata. Keep their validation path unchanged.
+      if (!manifest.sceneBake || typeof manifest.sceneBake !== 'object') return null;
       const tolerances = { translate: 0.25, rotate: 0.25, scale: 0.005, shear: 0.25,
         rgba: 1 / 255, rgb: 1 / 255, rgba2: 1 / 255, rgb2: 1 / 255 };
       const maxKeysPerTimeline = 12;
@@ -294,8 +297,10 @@
         if (vectors.some(vector => !vector) ||
             vectors.some(vector => vector.length !== vectors[0].length))
           return { frames, removed: 0 };
-        const same = vectors.every(vector => vector.every((value, index) =>
-          Math.abs(value - vectors[0][index]) <= 1e-9));
+        const same = property === 'attachment'
+          ? vectors.every(vector => JSON.stringify(vector) === JSON.stringify(vectors[0]))
+          : vectors.every(vector => vector.every((value, index) =>
+            Math.abs(value - vectors[0][index]) <= 1e-9));
         if (same) return { frames: null, removed: frames.length };
         if (frames.some(frame => frame.curve !== undefined ||
             frame.c2 !== undefined || frame.c3 !== undefined))
