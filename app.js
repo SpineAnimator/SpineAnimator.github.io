@@ -66,17 +66,16 @@
   }
   async function fetchPlannerWithRetry(body) {
     let lastError;
-    for (let attempt = 1; attempt <= 3; attempt++) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
       try {
         return await fetchLimited(STUDIO + '/api/plan', {
           method: 'POST', headers: { 'content-type': 'application/json' }, body
         }, 20 * 1024 * 1024, 'AI planner', 45000);
       } catch (error) {
         lastError = error;
-        if (attempt >= 3 || !isTransientPlannerError(error)) throw error;
-        const delay = attempt === 1 ? 800 : 1600;
-        message('AI planner connection interrupted; retry ' + (attempt + 1) + '/3: ' + String(error.message || error).slice(0, 140));
-        await new Promise(resolve => setTimeout(resolve, delay));
+        if (attempt >= 2 || !isTransientPlannerError(error)) throw error;
+        message('AI planner connection interrupted; retry 2/2: ' + String(error.message || error).slice(0, 140));
+        await new Promise(resolve => setTimeout(resolve, 800));
       }
     }
     throw lastError || Error('AI planner did not respond');
