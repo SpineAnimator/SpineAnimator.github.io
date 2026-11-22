@@ -68,14 +68,14 @@ function boneMap(){return new Map((state.json?.bones||[]).map(b=>[b.name,b]));}
 function descendantsOf(name){const map=boneMap(),out=new Set([name]);let changed=true;while(changed){changed=false;for(const b of map.values())if(b.parent&&out.has(b.parent)&&!out.has(b.name)){out.add(b.name);changed=true;}}return out;}
 function updateMakeButton(){
  const button=$("do-all"),n=state.selectedChoiceIndexes?.size||0;
- button.textContent=n?"Make Mask · "+n:"Make Mask";
+ button.textContent=n?"Make mask · "+n:"Make mask";
  button.disabled=quickBusy||(!state.json&&!state.images.length&&!state.binary);
  const slots=state.json?.slots||[];
  const chosen=[...new Set(state.treeChoices.filter(e=>state.selectedChoiceIndexes.has(e.choiceIndex)).map(e=>e.choice.slot))];
  const indices=chosen.map(name=>slots.findIndex(slot=>slot.name===name)).filter(i=>i>=0).sort((x,y)=>x-y);
  const hasGap=indices.length>1&&indices.at(-1)-indices[0]+1>indices.length;
  button.title=hasGap
-  ?"One mask covers the range from the first to the last selected slot; slots between them are also clipped inside the outline."
+  ?"One mask covers the range from the first to the last selected slot; intermediate slots are clipped inside the contour."
   :"";
 }
 function syncTreeChecks(){const root=$("selection-tree");if(!root)return;for(const box of root.querySelectorAll('input[type="checkbox"]')){const type=box.dataset.treeType,id=box.dataset.treeId;let keys=[];if(type==="bone"){const d=descendantsOf(id);keys=state.treeChoices.filter(e=>{const s=state.json.slots.find(x=>x.name===e.choice.slot);return s&&d.has(s.bone);}).map(e=>e.choiceIndex);}else if(type==="slot")keys=state.treeChoices.filter(e=>e.choice.slot===id).map(e=>e.choiceIndex);else keys=[Number(id)];const count=keys.filter(k=>state.selectedChoiceIndexes.has(k)).length;box.checked=keys.length>0&&count===keys.length;box.indeterminate=count>0&&count<keys.length;}}
@@ -118,16 +118,16 @@ function setupBoneMatrices(){
  return{bones,cache};
 }
 function commonBone(names,data){const chains=names.map(n=>{const a=[];let b=data.bones.get(n);while(b){a.push(b.name);b=b.parent?data.bones.get(b.parent):null;}return a;});return(chains[0]||[]).find(n=>chains.every(c=>c.includes(n)));}
-function sourceForChoice(c){const names=[basename(c.path),basename(c.attachment)];const found=state.images.filter(x=>names.includes(basename(x.file.name)));if(found.length>1)throw Error("Multiple textures have the same name: "+c.path);return found[0]||null;}
+function sourceForChoice(c){const names=[basename(c.path),basename(c.attachment)];const found=state.images.filter(x=>names.includes(basename(x.file.name)));if(found.length>1)throw Error("Multiple textures share the same filename: "+c.path);return found[0]||null;}
 function composeSelectedArtwork(entries){
  const slots=state.json.slots||[],bd=setupBoneMatrices(),selectedSlots=[...new Set(entries.map(e=>e.choice.slot))].sort((a,b)=>slots.findIndex(s=>s.name===a)-slots.findIndex(s=>s.name===b));
  const first=slots.findIndex(s=>s.name===selectedSlots[0]),last=slots.findIndex(s=>s.name===selectedSlots.at(-1));
- const names=selectedSlots.map(n=>slots.find(s=>s.name===n).bone),clipBone=commonBone(names,bd);if(!clipBone)throw Error("The selected bones have no common parent.");
+ const names=selectedSlots.map(n=>slots.find(s=>s.name===n).bone),clipBone=commonBone(names,bd);if(!clipBone)throw Error("No common parent bone was found.");
  for(const name of names){
   let bone=bd.bones.get(name);
   while(bone){
    if(bone.transform&&bone.transform!=="normal")
-    throw Error("The multi-bone mask does not yet support the inheritance mode "+bone.transform+" on bone "+bone.name+".");
+    throw Error("Multi-bone masking does not yet support the inheritance mode "+bone.transform+" on bone "+bone.name+".");
    bone=bone.parent?bd.bones.get(bone.parent):null;
   }
  }
@@ -203,7 +203,7 @@ function weightedMaskVertices(composition,maskPoints){
  });
 }
 async function generateSelectedObjects(){
- const entries=state.treeChoices.filter(e=>state.selectedChoiceIndexes.has(e.choiceIndex));if(!entries.length)throw Error("Select an item in the hierarchy.");
+ const entries=state.treeChoices.filter(e=>state.selectedChoiceIndexes.has(e.choiceIndex));if(!entries.length)throw Error("Select an object in the tree.");
  const c=composeSelectedArtwork(entries),ctx=c.canvas.getContext("2d",{willReadFrequently:true}),mask=imageMask(ctx.getImageData(0,0,c.canvas.width,c.canvas.height),{highlightFaces:$("highlight-edges").checked});
  const points=mask.points.map(([x,y])=>[c.minX+x/c.scale,c.maxY-y/c.scale]);
  const distinctBones=new Set(c.items.map(item=>item.boneName));
@@ -281,7 +281,7 @@ async function unpackSpineZip(file) {
 }
 async function importProjectFiles(fileList, replace=false) {
   const selected=Array.from(fileList||[]);
-  if(!selected.length)return {status:"needs_input"};
+  if(!selected.length)return {status:"empty"};
   try{
     const imported=[];
     for(const file of selected){
@@ -291,10 +291,10 @@ async function importProjectFiles(fileList, replace=false) {
     if(replace)$("reset").click();
     await addFiles(imported);
     if(state.binary&&!state.json)$("bridge-setup").open=true;
-    if(state.json)return {status:"loaded",mode:"spine-json",objects:agentGetSelectableObjects()};
-    if(state.binary)return {status:"needs_bridge",mode:"binary-spine"};
-    if(state.source)return {status:"loaded",mode:"image"};
-    return {status:"failed",error:$("status").textContent||"No supported project data found."};
+    if(!state.json&&!state.images.length&&!state.binary)
+      return {status:"failed",error:"No supported Spine skeleton or image was imported."};
+    return {status:"loaded",mode:state.json?"spine-json":state.binary?"spine-binary":"image",
+      skeleton:!!state.json,imageCount:state.images.length};
   }catch(error){
     status("Project import: "+error.message,true);
     return {status:"failed",error:String(error?.message||error)};
@@ -524,24 +524,26 @@ $("generate").addEventListener("click", generate);
 
 // Reuse the validated generator and preserved-project ZIP exporter. Never
 // replace the original upload or silently choose an ambiguous Spine region.
-async function doEverything({awaitNative=false,download=true}={}) {
-  if (quickBusy) return {status:"busy"};
+async function doEverything() {
+  if (quickBusy) return;
   if (!state.source && !state.json && !state.binary) {
-    return {status:"needs_input"};
+    quickPickerArmed = true;
+    $("project-files").click();
+    return;
   }
   if (state.binary && !state.json) {
     setAgentMode(true);
     status("This binary Spine project needs the native Bridge or an exported JSON with images.", true);
-    return {status:"needs_bridge"};
+    return;
   }
   if (state.json && !state.selectedChoiceIndexes.size) {
-    $("do-all").textContent = "Select an item";
-    return {status:"needs_selection",objects:agentGetSelectableObjects()};
+    $("do-all").textContent = "Select an object";
+    return;
   }
   if (!state.json && !state.source) {
     setAgentMode(true);
     status("Select a source image first.", true);
-    return {status:"needs_input"};
+    return;
   }
   quickBusy = true;
   const button = $("do-all");
@@ -555,30 +557,22 @@ async function doEverything({awaitNative=false,download=true}={}) {
     } else if (!state.result) await generate();
     if (!state.result) throw Error($("status").textContent || "Mask validation failed.");
     const zip = await buildPreservedSpineProjectZip();
-    const localArtifact={bytes:zip,filename:(state.base||"mask")+"-complete-spine-mask.zip",contentType:"application/zip"};
-    if(download)downloadBlob(new Blob([zip], { type: "application/zip" }),localArtifact.filename);
-    status("Complete Spine ZIP prepared. Queuing licensed Linux verification…");
-    // SA can await a complete artifact; ordinary UI use remains responsive.
-    if(awaitNative){
-      const native=await verifyLinuxZip(zip,{download});
-      return {status:native.status,artifact:native.artifact||null,localArtifact,
-        error:native.error||null,mask:getMaskAgentStatus(),linux:native.linux||null};
-    }
+    downloadBlob(new Blob([zip], { type: "application/zip" }),
+      (state.base || "mask") + "-complete-spine-mask.zip");
+    status("Complete Spine ZIP saved locally. Queuing licensed Linux verification…");
+    // Private CI receives the project only after this user-triggered Make all.
     void verifyLinuxZip(zip);
-    return {status:"exported",localArtifact,mask:getMaskAgentStatus()};
   } catch (error) {
-    state.actionErrorLabel = /continuous selected slot range|consecutive group/i.test(error.message) ? "Select consecutive slots" : "Mask failed";
+    state.actionErrorLabel = /continuous selected slot range|non-consecutive group/i.test(error.message) ? "Select consecutive items" : "Mask failed";
     status("Automatic mask export failed: " + error.message, true);
-    state.linuxCI={status:"failed",error:String(error?.message||error)};
-    return {status:"failed",error:String(error?.message||error),mask:getMaskAgentStatus()};
   } finally {
     quickBusy = false;
     button.disabled = false;
-    button.textContent = state.actionErrorLabel || (state.editorOpenResult === true ? "Opened in Spine" : state.editorOpenResult === "saved" ? "Saved" : state.editorOpenResult === false ? "Spine error" : "Make Mask");
+    button.textContent = state.actionErrorLabel || (state.editorOpenResult === true ? "Opened in Spine" : state.editorOpenResult === "saved" ? "Saved" : state.editorOpenResult === false ? "Spine error" : "Make mask");
   }
 }
 async function verifyLinuxZip(zip=null,{download=true}={}){
-  if(linuxVerifyBusy)return;
+  if(linuxVerifyBusy)return {status:"busy"};
   linuxVerifyBusy=true;
   const control=$("linux-verify");
   control.disabled=true;
@@ -599,27 +593,20 @@ async function verifyLinuxZip(zip=null,{download=true}={}){
       state.linuxCI={id:job.id,status:report.status};
       if(report.status==="queued")status("Ubuntu Spine Editor verification running or queued: "+job.id);
     }});
-    const nativeBytes=native.bytes;
-    linuxResultUrl=URL.createObjectURL(new Blob([nativeBytes],{type:"application/zip"}));
+    linuxResultUrl=URL.createObjectURL(new Blob([native.bytes],{type:"application/zip"}));
     link.href=linuxResultUrl;
     link.hidden=false;
-    const linux={id:job.id,status:"ready",bytes:nativeBytes.length,
-      inputSha256:native.inputSha256,outputSha256:native.outputSha256,receipt:native.receipt};
-    state.linuxCI=linux;
+    state.linuxCI={id:job.id,status:"ready",bytes:native.bytes.length,
+      inputSha256:native.inputSha256,outputSha256:native.outputSha256};
     status("Linux Spine Editor verified complete project. Native ZIP available.");
-    const artifact={bytes:nativeBytes,filename:(state.base||"spine")+"-linux-native.zip",contentType:"application/zip",
-      sha256:native.outputSha256,inputSha256:native.inputSha256,
-      integrity:{version:1,stages:[{stage:"spine.mask.generate",inputSha256:native.inputSha256,
-        outputSha256:native.outputSha256,receipt:native.receipt,linuxJobId:job.id}]},
-      nativeEditorVerification:{status:"verified",gateway:"3spine-v2",inputSha256:native.inputSha256,
-        outputSha256:native.outputSha256,receipt:native.receipt}};
-    if(download)downloadBlob(new Blob([nativeBytes],{type:"application/zip"}),artifact.filename);
-    return {status:"ready",artifact,jobId:job.id,linux,inputSha256:native.inputSha256,
-      outputSha256:native.outputSha256,receipt:native.receipt};
+    const filename=(state.base||"spine")+"-linux-native.zip";
+    if(download)downloadBlob(new Blob([native.bytes],{type:"application/zip"}),filename);
+    return {status:"ready",bytes:native.bytes,filename,jobId:job.id,verifiedBy:"Spine Editor 4.3.26",
+      inputSha256:native.inputSha256,outputSha256:native.outputSha256,receipt:native.receipt};
   }catch(error){
     state.linuxCI={status:"failed",error:String(error?.message||error)};
     status("Linux CI: "+error.message+" · The local Spine ZIP is unaffected.",true);
-    return {status:"failed",error:String(error?.message||error),localArtifact:zip?{bytes:zip,filename:(state.base||"spine")+"-mask.zip",contentType:"application/zip"}:null};
+    return {status:"failed",error:String(error?.message||error)};
   }finally{linuxVerifyBusy=false;control.disabled=false;}
 }
 $("linux-verify").addEventListener("click",()=>void verifyLinuxZip());
@@ -637,80 +624,71 @@ $("quick-choose-project").addEventListener("click", () => {
 $("highlight-edges").addEventListener("change", () => {
   if(state.source&&(!state.json||selectedRegion()))generate();
 });
-// Stable same-origin SA Agent interface. Source artwork stays in this browser tab.
-function getMaskAgentStatus(){
-  return {ready:!!state.result,mode:$("highlight-edges").checked?"light-faces":"silhouette",
-    result:state.result?{vertices:state.result.mask.stats.vertices,
-      highlightApplied:state.result.mask.stats.highlightApplied,
-      mobileQualityPassed:state.result.mask.stats.mobileQualityPassed,
-      mobileVertexBudget:state.result.mask.stats.mobileVertexBudget,
-      concurrentSkeletons:state.result.mask.stats.concurrentSkeletons,
-      totalSceneClippingVertices:state.result.mask.stats.totalSceneClippingVertices,
-      darkLeakPercent:state.result.mask.stats.darkLeakPercent,
-      missingLightPercent:state.result.mask.stats.missingLightPercent}:null,
-    linux:state.linuxCI||{status:"idle"}};
-}
-function agentGetSelectableObjects(){
-  const slots=state.json?.slots||[];
-  return (state.treeChoices||[]).map(e=>{
-    const slot=slots.find(s=>s.name===e.choice.slot);
-    return {choiceIndex:e.choiceIndex,slot:e.choice.slot,attachment:e.choice.attachment,
-      skin:e.choice.skin||"default",path:e.choice.path||"",bone:slot?.bone||null,
-      selected:state.selectedChoiceIndexes.has(e.choiceIndex)};
-  });
-}
-function agentSetSelectedObjects(items=[]){
-  if(!Array.isArray(items))throw Error("Selection must be an array.");
-  const selected=new Set();
-  for(const e of state.treeChoices||[]){
-    const c=e.choice;
-    const match=items.some(item=>{
-      if(Number.isInteger(item))return item===e.choiceIndex;
-      if(typeof item==="string")return item===c.slot||item===c.attachment||item===c.path;
-      if(!item||typeof item!=="object")return false;
-      return (!item.slot||item.slot===c.slot)&&
-        (!item.attachment||item.attachment===c.attachment)&&
-        (!item.skin||item.skin===(c.skin||"default"))&&
-        (!item.path||item.path===c.path)&&
-        (item.slot||item.attachment||item.path);
-    });
-    if(match)selected.add(e.choiceIndex);
-  }
-  state.selectedChoiceIndexes=selected;
-  syncTreeChecks();clearResult();state.editorOpenResult=null;state.actionErrorLabel=null;updateMakeButton();
-  return agentGetSelectableObjects().filter(x=>x.selected);
-}
-function agentSetSelectedBones(names=[]){
-  if(!Array.isArray(names))throw Error("Bone selection must be an array.");
-  const slots=state.json?.slots||[],selected=new Set();
-  for(const name of names){
-    const descendants=descendantsOf(String(name));
-    for(const e of state.treeChoices||[]){
-      const slot=slots.find(s=>s.name===e.choice.slot);
-      if(slot&&descendants.has(slot.bone))selected.add(e.choiceIndex);
-    }
-  }
-  state.selectedChoiceIndexes=selected;
-  syncTreeChecks();clearResult();state.editorOpenResult=null;state.actionErrorLabel=null;updateMakeButton();
-  return agentGetSelectableObjects().filter(x=>x.selected);
-}
+// Stable agent interface. No image data is exposed here or transmitted.
 Object.defineProperty(window,"SpineMaskAgentControl",{
   value:Object.freeze({
     getHighlightEdges:()=>$("highlight-edges").checked,
-    loadFiles:files=>importProjectFiles(files,true),
     setHighlightEdges:enabled=>{
-      const checkbox=$("highlight-edges");
-      checkbox.checked=!!enabled;
-      return checkbox.checked;
+      $("highlight-edges").checked=!!enabled;
+      return $("highlight-edges").checked;
+    },
+    loadFiles:async files=>importProjectFiles(files,true),
+    getSelectableObjects:()=>state.treeChoices.map(entry=>{
+      const slot=(state.json?.slots||[]).find(item=>item.name===entry.choice.slot);
+      return {choiceIndex:entry.choiceIndex,slot:entry.choice.slot,attachment:entry.choice.attachment,
+        skin:entry.choice.skin||"default",path:entry.choice.path||"",bone:slot?.bone||null,
+        selected:state.selectedChoiceIndexes.has(entry.choiceIndex)};
+    }),
+    setSelectedObjects:targets=>{
+      if(!Array.isArray(targets)||!targets.length)throw Error("Exact mask targets are required.");
+      const matched=[];
+      for(const target of targets){
+        if(!target||typeof target!=="object"||typeof target.slot!=="string"||
+          typeof target.attachment!=="string")throw Error("Each mask target needs exact slot and attachment names.");
+        const candidates=state.treeChoices.filter(entry=>{
+          const c=entry.choice;
+          return c.slot===target.slot&&c.attachment===target.attachment&&
+            (target.skin===undefined||(c.skin||"default")===target.skin)&&
+            (target.path===undefined||(c.path||"")===target.path);
+        });
+        if(candidates.length!==1)throw Error("Mask target did not resolve uniquely: "+target.slot+"/"+target.attachment);
+        matched.push(candidates[0]);
+      }
+      if(new Set(matched.map(x=>x.choiceIndex)).size!==matched.length)
+        throw Error("Duplicate mask targets are not allowed.");
+      state.selectedChoiceIndexes=new Set(matched.map(x=>x.choiceIndex));
+      syncTreeChecks();updateMakeButton();clearResult();
+      return matched.map(entry=>({choiceIndex:entry.choiceIndex,slot:entry.choice.slot,
+        attachment:entry.choice.attachment,skin:entry.choice.skin,path:entry.choice.path}));
+    },
+    runFullWorkflow:async()=>{
+      if(!state.json)throw Error("A Spine JSON skeleton with region images is required for automated multi-target masking.");
+      if(!state.selectedChoiceIndexes.size)throw Error("Select exact mask targets before running the workflow.");
+      await generateSelectedObjects();
+      if(!state.result?.json)throw Error("Mask generation did not produce a Spine JSON result.");
+      const prepared=await buildPreservedSpineProjectZip();
+      const native=await verifyLinuxZip(prepared,{download:false});
+      if(native.status!=="ready"||!(native.bytes instanceof Uint8Array))
+        return {status:"failed",error:native.error||"Native Spine Editor verification did not complete.",
+          mask:{result:state.result.mask.stats,linux:state.linuxCI||{status:"failed"}}};
+      return {status:"ready",artifact:{bytes:native.bytes,filename:native.filename},
+        mask:{result:state.result.mask.stats,linux:{status:"ready",id:native.jobId,bytes:native.bytes.length,
+          inputSha256:native.inputSha256,outputSha256:native.outputSha256,receipt:native.receipt,
+          verifiedBy:native.verifiedBy}}};
     },
     generate:()=>generate(),
-    getSelectableObjects:()=>agentGetSelectableObjects(),
-    setSelectedObjects:items=>agentSetSelectedObjects(items),
-    setSelectedBones:names=>agentSetSelectedBones(names),
-    runFullWorkflow:()=>doEverything({awaitNative:true,download:false}),
     verifyLinuxCI:()=>verifyLinuxZip(),
     getLinuxStatus:()=>state.linuxCI||{status:"idle"},
-    getStatus:()=>getMaskAgentStatus()
+    getStatus:()=>({ready:!!state.result,mode:$("highlight-edges").checked?"light-faces":"silhouette",
+      selectedTargets:state.selectedChoiceIndexes.size,
+      result:state.result?{vertices:state.result.mask.stats.vertices,
+        highlightApplied:state.result.mask.stats.highlightApplied,
+        mobileQualityPassed:state.result.mask.stats.mobileQualityPassed,
+        mobileVertexBudget:state.result.mask.stats.mobileVertexBudget,
+        concurrentSkeletons:state.result.mask.stats.concurrentSkeletons,
+        totalSceneClippingVertices:state.result.mask.stats.totalSceneClippingVertices,
+        darkLeakPercent:state.result.mask.stats.darkLeakPercent,
+        missingLightPercent:state.result.mask.stats.missingLightPercent}:null})
   }),
   writable:false,configurable:false
 });
