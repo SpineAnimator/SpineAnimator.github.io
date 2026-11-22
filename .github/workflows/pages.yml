@@ -131,6 +131,7 @@ jobs:
             'id:native.jobId',
             'inputSha256:native.inputSha256',
             'outputSha256:native.outputSha256',
+            'linux:{status:"ready",id:native.jobId',
             'getLinuxStatus:()=>state.linuxCI||{status:"idle"}',
             'return {status:"failed",error:',
             'if(download)downloadBlob'
