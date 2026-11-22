@@ -929,6 +929,56 @@ jobs:
           const sourceRequests=[];
           const planRequests=[];
           const buildRequestsByPage=new WeakMap();
+          function zipStored(entries) {
+            const locals=[],centrals=[];let offset=0;
+            for(const [name,value] of Object.entries(entries)){
+              const filename=Buffer.from(name),data=Buffer.isBuffer(value)?value:Buffer.from(value);
+              let crc=0xffffffff;
+              for(const byte of data){crc^=byte;for(let bit=0;bit<8;bit++)crc=(crc>>>1)^((crc&1)?0xedb88320:0);}
+              crc=(crc^0xffffffff)>>>0;
+              const local=Buffer.alloc(30+filename.length);
+              local.writeUInt32LE(0x04034b50,0);local.writeUInt16LE(20,4);
+              local.writeUInt32LE(crc,14);local.writeUInt32LE(data.length,18);
+              local.writeUInt32LE(data.length,22);local.writeUInt16LE(filename.length,26);
+              filename.copy(local,30);locals.push(local,data);
+              const central=Buffer.alloc(46+filename.length);
+              central.writeUInt32LE(0x02014b50,0);central.writeUInt16LE(20,4);
+              central.writeUInt16LE(20,6);central.writeUInt32LE(crc,16);
+              central.writeUInt32LE(data.length,20);central.writeUInt32LE(data.length,24);
+              central.writeUInt16LE(filename.length,28);central.writeUInt32LE(offset,42);
+              filename.copy(central,46);centrals.push(central);
+              offset+=local.length+data.length;
+            }
+            const directory=Buffer.concat(centrals),end=Buffer.alloc(22),count=centrals.length;
+            end.writeUInt32LE(0x06054b50,0);end.writeUInt16LE(count,8);end.writeUInt16LE(count,10);
+            end.writeUInt32LE(directory.length,12);end.writeUInt32LE(offset,16);
+            return Buffer.concat([...locals,directory,end]);
+          }
+          function smokeZip(request) {
+            const layers=request.layers||[],clips=request.scene?.clips||[];
+            const bones=[{name:'root'},...layers.map((_,i)=>({name:'layer_'+i,parent:'root'}))];
+            const slots=layers.map((layer,i)=>({name:'slot_'+i,bone:'layer_'+i,attachment:layer.id}));
+            const animations=Object.fromEntries(clips.map(clip=>[clip.id,{bones:{
+              layer_0:{translate:[{time:0,x:0,y:0},{time:Math.max(0.1,Number(clip.duration)||1),x:12,y:0}]}
+            }}]));
+            const skeleton={skeleton:{hash:'ci-smoke',spine:'4.3.26',width:request.canvas?.width||1,
+              height:request.canvas?.height||1,images:'./images/',audio:'./audio'},
+              bones,slots,skins:[{name:'default',attachments:{}}],animations};
+            const atlas=['smoke.png','size:1024,1024','format:RGBA8888','filter:Linear,Linear','repeat:none','',
+              ...layers.flatMap(layer=>[layer.id,'  bounds:0,0,'+(layer.bounds?.width||1)+','+(layer.bounds?.height||1),''])].join('\\n');
+            const manifest={backend:'2spine-cloud-executor',spine:'4.3.26',layerCount:layers.length,
+              clipCount:clips.length,validation:{setupPreserved:true,drawOrderPreserved:true,frameZeroPreserved:true},
+              renderEvidence:{status:'not-rendered',frameCount:0},artisticApproval:'pending',
+              releaseReady:false,nativeSpineEditorFile:false};
+            const files={'skeleton.json':JSON.stringify(skeleton),'skeleton.atlas':atlas,
+              'manifest.json':JSON.stringify(manifest)};
+            for(const layer of layers){
+              const png=Buffer.alloc(24);png.set([137,80,78,71,13,10,26,10]);png.write('IHDR',12,'ascii');
+              png.writeUInt32BE(layer.bounds.width,16);png.writeUInt32BE(layer.bounds.height,20);
+              files['images/'+layer.id+'.png']=png;
+            }
+            return zipStored(files);
+          }
           async function newPage({planStatus=200,planBody=null}={}){
             const page=await browser.newPage({viewport:{width:375,height:820}});
             const pageBuildRequests=[];
@@ -1018,8 +1068,9 @@ jobs:
                 'Access-Control-Allow-Headers':'content-type'};
               if(req.method()==='OPTIONS'){await route.fulfill({status:204,headers:cors});return;}
               pageBuildRequests.push({method:req.method(),url:req.url()});
+              const exportRequest=req.postDataJSON();
               await route.fulfill({status:200,headers:{...cors,'Content-Type':'application/zip'},
-                body:Buffer.from([0x50,0x4b,0x03,0x04,0x00,0x00,0x00,0x00])});
+                body:smokeZip(exportRequest)});
             });
             const response=await page.goto(origin+'/?psd-ui-smoke='+Date.now(),{waitUntil:'load',timeout:45000});
             assert.equal(response.status(),200,'public website must return HTTP 200');
