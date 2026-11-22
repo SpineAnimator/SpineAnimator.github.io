@@ -898,7 +898,7 @@ jobs:
           export CHROME_PATH
           cat > "$RUNNER_TEMP/main-psd-smoke/smoke.mjs" <<'NODE'
           import assert from 'node:assert/strict';
-          import { createHash } from 'node:crypto';
+          import { createHash, randomUUID } from 'node:crypto';
           import { writeFileSync } from 'node:fs';
           import { chromium } from 'playwright';
 
@@ -1051,7 +1051,7 @@ jobs:
                   validation:{initialPosePreserved:true,drawOrderPreserved:true,sourceLayers:layerIds.length}
                 };
                 const mockedPlan=typeof planBody==='function'?planBody(planRequest):(planBody||validSmokePlan);
-                const jobId=require('node:crypto').randomUUID();
+                const jobId=randomUUID();
                 mockedPlans.set(jobId,mockedPlan);
                 await route.fulfill({status:202,headers:{...cors,'Content-Type':'application/json'},
                   body:JSON.stringify({jobId,status:'queued'})});
