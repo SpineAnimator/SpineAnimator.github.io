@@ -60,8 +60,8 @@
   function isTransientPlannerError(error) {
     const remoteCode = String(error?.remoteCode || '');
     const errorMessage = String(error?.message || '');
-    if (['ANALYSIS_SCHEMA', 'VISION_RESPONSE', 'VISION_PLAN', 'VISION_QUOTA', 'VISION_UNAVAILABLE', 'VISION_CONFIGURATION'].includes(remoteCode) ||
-        /ANALYSIS_SCHEMA|Invalid visual subject|Visual model analysis did not pass structural validation|Visual model scene did not pass structural validation/i.test(errorMessage)) return false;
+    if (['ANALYSIS_SCHEMA', 'SCENE_SCHEMA', 'VISION_RESPONSE', 'VISION_PLAN', 'VISION_QUOTA', 'VISION_UNAVAILABLE', 'VISION_CONFIGURATION'].includes(remoteCode) ||
+        /ANALYSIS_SCHEMA|SCENE_SCHEMA|Scene: nodes must contain|Invalid visual subject|Visual model analysis did not pass structural validation|Visual model scene did not pass structural validation/i.test(errorMessage)) return false;
     return error?.code === 'NETWORK_ERROR' || error?.code === 'NETWORK_TIMEOUT' ||
       TRANSIENT_PLANNER_HTTP.has(error?.status);
   }
@@ -399,12 +399,13 @@
         const remoteCode = String(error?.remoteCode || '');
         const errorMessage = String(error?.message || '');
         const schemaFailure = error?.code === 'AI_SCHEMA_INVALID' ||
-          ['ANALYSIS_SCHEMA', 'VISION_RESPONSE', 'VISION_PLAN'].includes(remoteCode) ||
-          /ANALYSIS_SCHEMA|Invalid visual subject|visual analysis schema|Visual model analysis did not pass structural validation|Visual model scene did not pass structural validation/i.test(errorMessage);
+          ['ANALYSIS_SCHEMA', 'SCENE_SCHEMA', 'VISION_RESPONSE', 'VISION_PLAN'].includes(remoteCode) ||
+          /ANALYSIS_SCHEMA|SCENE_SCHEMA|Scene: nodes must contain|Invalid visual subject|visual analysis schema|Visual model analysis did not pass structural validation|Visual model scene did not pass structural validation/i.test(errorMessage);
         if (!schemaFailure || repair >= 1) throw error;
         const corrected = JSON.parse(current);
         corrected.instructions = String(corrected.instructions || '') +
           ' REPAIR THE PREVIOUS AI RESPONSE. Return a complete valid scene and visual analysis. ' +
+          'The top-level response MUST include scene:{nodes:[...],clips:[...]}; scene.nodes must contain 1..2000 nodes and scene.clips at least one animated clip. ' +
           'analysis.subject must be an object {kind: non-empty string, confidence: finite 0..1}; ' +
           'use kind unknown and confidence 0 when uncertain, never a string subject. ' +
           'analysis.parts must be an array; every part has id, kind, confidence, layerIds and chains arrays. ' +
