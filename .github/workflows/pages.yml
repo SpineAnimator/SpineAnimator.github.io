@@ -130,7 +130,7 @@ jobs:
             'ambiguous Spine projects must request explicit object selection');
           assert.match(app,/status:"needs_bridge"/,
             'binary Spine projects must fail closed until Bridge conversion is available');
-          assert.match(app,/return \\{status:"ready",artifact,jobId:job.id\\}/,
+          assert.match(app,/return \\{status:"ready",artifact,jobId:job.id,linux/,
             'native Linux Editor output bytes must be returned to SA');
           assert.match(app,/inputSha256:native.inputSha256/);
           assert.match(app,/outputSha256:native.outputSha256/);
