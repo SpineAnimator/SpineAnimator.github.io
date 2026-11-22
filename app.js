@@ -398,11 +398,11 @@
       } catch (error) {
         const remoteCode = String(error?.remoteCode || '');
         const errorMessage = String(error?.message || '');
-        // Missing scene/nodes is a repairable AI schema failure, not a transport retry.
+        // Missing scene/nodes and source-preservation violations are repairable AI plan failures, not transport retries.
         // The workflow retains the real PSD E2E diagnostics and ZIP for independent inspection.
         const schemaFailure = error?.code === 'AI_SCHEMA_INVALID' ||
           ['ANALYSIS_SCHEMA', 'SCENE_SCHEMA', 'VISION_RESPONSE', 'VISION_PLAN'].includes(remoteCode) ||
-          /ANALYSIS_SCHEMA|SCENE_SCHEMA|Scene: nodes must contain|Invalid visual subject|visual analysis schema|Visual model analysis did not pass structural validation|Visual model scene did not pass structural validation/i.test(errorMessage);
+          /ANALYSIS_SCHEMA|SCENE_SCHEMA|Scene: nodes must contain|Invalid visual subject|visual analysis schema|Visual model analysis did not pass structural validation|Visual model scene did not pass structural validation|Visual model changed|Visual model altered|Visual model omitted/i.test(errorMessage);
         if (!schemaFailure || repair >= 1) throw error;
         const corrected = JSON.parse(current);
         corrected.instructions = String(corrected.instructions || '') +
