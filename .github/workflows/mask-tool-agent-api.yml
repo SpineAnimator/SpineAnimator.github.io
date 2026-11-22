@@ -43,7 +43,7 @@ jobs:
             'status:"needs_selection"',
             'status:"needs_bridge"',
             'status:"busy"',
-            'return {status:"ready",artifact,jobId:job.id}',
+            'return {status:"ready",artifact,jobId:job.id,linux',
             'inputSha256:native.inputSha256',
             'outputSha256:native.outputSha256',
             'receipt:native.receipt',
