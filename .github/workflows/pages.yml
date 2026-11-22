@@ -982,10 +982,21 @@ jobs:
                   body:JSON.stringify({error:{message:'forced CI upstream AI timeout'}})});
                 return;
               }
-              const mockedPlan=typeof planBody==='function'?planBody(req.postDataJSON()):planBody;
+              const planRequest=req.postDataJSON();
+              const layerIds=(planRequest.layers||[]).map(layer=>layer.id);
+              const validSmokePlan={
+                scene:{
+                  nodes:layerIds.map(id=>({id,asset:id})),
+                  drawOrder:layerIds,
+                  clips:[{id:'smoke-idle',duration:1,tracks:[{
+                    target:layerIds[0],property:'x',keys:[{time:0,value:0},{time:1,value:12}]
+                  }]}]
+                },
+                validation:{initialPosePreserved:true,drawOrderPreserved:true,sourceLayers:layerIds.length}
+              };
+              const mockedPlan=typeof planBody==='function'?planBody(planRequest):(planBody||validSmokePlan);
               await route.fulfill({status:200,headers:{...cors,'Content-Type':'application/json'},
-                body:JSON.stringify(mockedPlan || {scene:{clips:[{id:'smoke-idle',duration:1,tracks:[]}]},
-                  validation:{initialPosePreserved:true,drawOrderPreserved:true}})});
+                body:JSON.stringify(mockedPlan)});
             });
             await page.route('https://spine-generator.spine-animator-f8692224.workers.dev/api/build',async route=>{
               const req=route.request();
