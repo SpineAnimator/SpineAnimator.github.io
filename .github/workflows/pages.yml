@@ -1613,6 +1613,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The public site now queues AI plans asynchronously. Its custom
+          # X-Request-ID header must pass the production API's CORS preflight.
+          endpoint="https://spine-plan-api.spine-animator-f8692224.workers.dev/api/plan-async"
+          headers="$(mktemp)"
+          status="$(curl --silent --show-error --retry 3 --retry-delay 2 --max-time 15 \
+            --output /dev/null --dump-header "$headers" \
+            --request OPTIONS \
+            --header 'Origin: https://spineanimator.github.io' \
+            --header 'Access-Control-Request-Method: POST' \
+            --header 'Access-Control-Request-Headers: content-type,x-request-id' \
+            --write-out '%{http_code}' "$endpoint")"
+          if [[ "$status" != 200 && "$status" != 204 ]]; then
+            echo "::error::Async planner preflight HTTP $status for $endpoint"
+            exit 1
+          fi
+          grep -Fiq 'access-control-allow-origin: https://spineanimator.github.io' "$headers"
+          grep -Fiq 'access-control-allow-headers: Content-Type, X-Request-ID' "$headers" || {
+            echo "::error::Async planner does not allow Content-Type and X-Request-ID"
+            exit 1
+          }
+          echo "ASYNC_PLAN_API_PREFLIGHT_PASS $endpoint" >> "$GITHUB_STEP_SUMMARY"
+          rm -f "$headers"
           for endpoint in \
             "https://spine-studio.spine-animator-f8692224.workers.dev/api/plan" \
             "https://spine-generator.spine-animator-f8692224.workers.dev/api/build"; do
