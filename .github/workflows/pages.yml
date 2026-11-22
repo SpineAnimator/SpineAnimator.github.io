@@ -97,7 +97,9 @@ jobs:
           const requests=[];
           let staticFixture=false;
           const rgba=new Uint8ClampedArray(2*2*4).fill(255);
-          const context={document,window:{agPsd:{readPsd:()=>({width:2,height:2,
+          const context={document,ArrayBuffer,TextEncoder,TextDecoder,AbortController,setTimeout,clearTimeout,
+            URL:TrackedURL,ImageData:FakeImageData,Blob,console,window:{agPsd:{readPsd:()=>({width:2,height:2,
+              children:[{name:'smoke-layer',left:0,top:0,imageData:{width:2,height:2,data:rgba}}],
               imageData:{width:2,height:2,data:rgba},fetch:async(url,init)=>{
               requests.push({url,method:init?.method,body:init?.body});
               const body=url.endsWith('/api/plan')
@@ -121,6 +123,7 @@ jobs:
                 zip.buffer.slice(zip.byteOffset,zip.byteOffset+zip.byteLength);
               return {ok:true,headers:{get:()=>null},arrayBuffer:async()=>bytes};
             }})}}};
+          context.fetch=context.window.agPsd.readPsd().fetch;
           vm.runInNewContext(source,context,{filename:'app.js'});
           const create=element('generate').handlers.click[0];
           element('prompt').value='Create a calm idle animation';
