@@ -277,8 +277,8 @@
         // A visual animation can move bones OR animate slot appearance.
         // The exporter writes opacity as Spine 4.3 slot.rgba timelines;
         // rejecting those as static incorrectly discards glow/fade clips.
-        const transformTimeline = /\\.bones\\.[^.]+\\.(translate|rotate|scale|shear)$/.test(path);
-        const slotTimeline = /\\.slots\\.[^.]+\\.(rgba|rgb|rgba2|rgb2|attachment)$/.test(path);
+        const transformTimeline = /\.bones\.[^.]+\.(translate|rotate|scale|shear)$/.test(path);
+        const slotTimeline = /\.slots\.[^.]+\.(rgba|rgb|rgba2|rgb2|attachment)$/.test(path);
         if (transformTimeline || slotTimeline) {
           const frames = value.map((frame, index) => frame && typeof frame === 'object' &&
             !Array.isArray(frame) && (Number.isFinite(frame.time) || index === 0)
