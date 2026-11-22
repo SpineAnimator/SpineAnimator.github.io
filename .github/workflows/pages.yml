@@ -98,7 +98,7 @@ jobs:
           let staticFixture=false;
           const rgba=new Uint8ClampedArray(2*2*4).fill(255);
           const context={document,ArrayBuffer,TextEncoder,TextDecoder,AbortController,setTimeout,clearTimeout,
-            URL:TrackedURL,ImageData:FakeImageData,Blob,console,window:{agPsd:{readPsd:()=>({width:2,height:2,
+            URL:TrackedURL,ImageData:FakeImageData,HTMLCanvasElement:FakeCanvas,Blob,console,window:{agPsd:{readPsd:()=>({width:2,height:2,
               children:[{name:'smoke-layer',left:0,top:0,imageData:{width:2,height:2,data:rgba}}],
               imageData:{width:2,height:2,data:rgba},fetch:async(url,init)=>{
               requests.push({url,method:init?.method,body:init?.body});
