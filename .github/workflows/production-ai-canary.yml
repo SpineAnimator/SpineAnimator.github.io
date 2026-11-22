@@ -1,0 +1,215 @@
+name: Production AI planner and Spine 4.3 canary
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/production-ai-canary.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  production-ai-canary:
+    if: github.repository == 'SpineAnimator/SpineAnimator.github.io'
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install official Spine 4.3 runtime
+        run: npm install --no-save --no-package-lock @esotericsoftware/spine-core@4.3.13
+      - name: Verify production CORS, real AI scene, full ZIP and official runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs/promises';
+          import {execFileSync} from 'node:child_process';
+          import {createHash} from 'node:crypto';
+          const ORIGIN='https://spineanimator.github.io';
+          const PLANNER='https://spine-studio.spine-animator-f8692224.workers.dev';
+          const GENERATOR='https://spine-generator.spine-animator-f8692224.workers.dev';
+          const image='data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO/Vdr0AAAAASUVORK5CYII=';
+          const layers=['body','highlight'].map((id,index)=>({id,image,bounds:{x:0,y:index,width:1,height:1}}));
+          const headers={origin:ORIGIN,'content-type':'application/json'};
+          for(const [name,base,path] of [['planner',PLANNER,'/api/plan'],['generator',GENERATOR,'/api/build']]){
+            const preflight=await fetch(base+path,{method:'OPTIONS',headers:{
+              origin:ORIGIN,'access-control-request-method':'POST',
+              'access-control-request-headers':'content-type'
+            },signal:AbortSignal.timeout(12000)});
+            const allowOrigin=preflight.headers.get('access-control-allow-origin')||'';
+            const allowMethods=preflight.headers.get('access-control-allow-methods')||'';
+            const allowHeaders=preflight.headers.get('access-control-allow-headers')||'';
+            console.log('PRODUCTION_CORS_PREFLIGHT',JSON.stringify({name,status:preflight.status,allowOrigin,allowMethods,allowHeaders}));
+            if(![200,204].includes(preflight.status)||!(allowOrigin===ORIGIN||allowOrigin==='*')||
+               !/POST/i.test(allowMethods)||!/content-type/i.test(allowHeaders))
+              throw Error(name+' CORS preflight failed; browser may report Failed to fetch');
+          }
+          const planBody={image,layers,
+            description:'Animate the two original sprite layers as one compact 2D character: anticipate, make a readable upward bounce, hold briefly, follow through and settle. Preserve the exact source artwork.',
+            instructions:'Use real AI planning. Preserve every original layer, pixels, exact draw order and frame-zero setup. Return complete authored clips with numeric node tracks, at least two distinct poses at distinct times in every clip. No empty, static or technical fallback animation. Do not invent hidden artwork or anatomy.'};
+          const transient=new Set([408,425,429,500,502,503,504]);
+          let response=null,raw='',lastError=null;
+          for(let attempt=1;attempt<=3;attempt++){
+            try{
+              response=await fetch(PLANNER+'/api/plan',{method:'POST',headers,body:JSON.stringify(planBody),
+                signal:AbortSignal.timeout(30000)});
+              raw=await response.text();
+              if(response.ok)break;
+              let detail={};try{detail=JSON.parse(raw)}catch{}
+              const reason=String(detail.error?.message||detail.error||raw).slice(0,400);
+              console.log('AI_PLANNER_ATTEMPT',JSON.stringify({attempt,status:response.status,
+                cfRay:response.headers.get('cf-ray'),error:reason}));
+              if(!transient.has(response.status)||attempt===3)
+                throw Error('AI planner HTTP '+response.status+': '+reason);
+            }catch(error){
+              lastError=error;
+              const retryable=transient.has(response?.status)||
+                /failed to fetch|fetch failed|network|timeout|socket|ECONN/i.test(String(error.message));
+              if(!retryable||attempt===3)throw error;
+              console.log('AI_PLANNER_NETWORK_RETRY',JSON.stringify({attempt,error:String(error.message).slice(0,240)}));
+            }
+            await new Promise(resolve=>setTimeout(resolve,attempt*900));
+          }
+          if(!response?.ok)throw lastError||Error('AI planner did not return a successful response');
+          const plan=JSON.parse(raw),scene=plan.scene,validation=plan.validation||{};
+          if(!scene||!Array.isArray(scene.nodes)||!scene.nodes.length||
+             !Array.isArray(scene.clips)||!scene.clips.length)
+            throw Error('AI returned no complete scene/clips');
+          if(validation.initialPosePreserved!==true||validation.drawOrderPreserved!==true||
+             validation.sourceLayers!==layers.length)
+            throw Error('AI source-preservation contract failed');
+          const nodes=new Map(scene.nodes.map(node=>[node.id,node]));
+          if(nodes.size!==scene.nodes.length)throw Error('AI returned duplicate node IDs');
+          const order=Array.isArray(scene.drawOrder)?scene.drawOrder:scene.nodes.map(node=>node.id);
+          if(order.length!==scene.nodes.length||new Set(order).size!==scene.nodes.length||
+             order.some(id=>!nodes.has(id)))throw Error('AI draw order is incomplete');
+          const assets=order.map(id=>nodes.get(id)).filter(node=>node.asset).map(node=>node.asset);
+          if(assets.length!==layers.length||assets.some((id,index)=>id!==layers[index].id))
+            throw Error('AI changed source layer inventory or order');
+          const clipAudit=scene.clips.map(clip=>{
+            if(!Number.isFinite(clip.duration)||clip.duration<=0||
+               !Array.isArray(clip.tracks)||!clip.tracks.length)
+              throw Error('Clip '+clip.id+' has no authored node tracks');
+            let moving=false,keys=0;
+            for(const track of clip.tracks){
+              if(!nodes.has(track.target)||!['x','y','z','rotation','scaleX','scaleY','opacity','depth'].includes(track.property))
+                throw Error('Clip '+clip.id+' has an invalid track target/property');
+              if(!Array.isArray(track.keys)||track.keys.length<2)
+                throw Error('Clip '+clip.id+' contains a track with fewer than two keyframes');
+              let previous=-1;const values=new Set();
+              for(const key of track.keys){
+                if(!Number.isFinite(key.time)||key.time<0||key.time>clip.duration||
+                   key.time<=previous||!Number.isFinite(key.value))
+                  throw Error('Clip '+clip.id+' contains invalid or unordered keyframes');
+                previous=key.time;values.add(key.value);keys++;
+              }
+              if(values.size>1)moving=true;
+            }
+            if(!moving)throw Error('Clip '+clip.id+' is static');
+            return {id:clip.id,tracks:clip.tracks.length,keyframes:keys};
+          });
+          if(plan.analysis!==undefined){
+            const a=plan.analysis;
+            if(!a||!a.subject||typeof a.subject.kind!=='string'||!a.subject.kind.trim()||
+               !Number.isFinite(a.subject.confidence)||a.subject.confidence<0||a.subject.confidence>1||
+               !Array.isArray(a.parts))throw Error('AI visual analysis has invalid subject/parts schema');
+            const partIds=new Set();
+            for(const part of a.parts){
+              if(!part||typeof part.id!=='string'||!part.id.trim()||partIds.has(part.id)||
+                 typeof part.kind!=='string'||!part.kind.trim()||
+                 !Number.isFinite(part.confidence)||part.confidence<0||part.confidence>1||
+                 !Array.isArray(part.layerIds)||!Array.isArray(part.chains))
+                throw Error('AI visual part schema is invalid');
+              partIds.add(part.id);
+              if(part.layerIds.some(id=>!layers.some(layer=>layer.id===id)))
+                throw Error('AI visual analysis references an unknown source layer');
+              for(const chain of part.chains){
+                if(!Array.isArray(chain.points)||chain.points.length<2||
+                   chain.points.some(point=>!Number.isFinite(point.x)||!Number.isFinite(point.y)||
+                     point.x<0||point.y<0||point.x>1||point.y>1))
+                  throw Error('AI visual chain is invalid or outside source pixels');
+              }
+            }
+          }
+          console.log('PRODUCTION_AI_SCENE_PASS',JSON.stringify({
+            nodes:scene.nodes.length,clips:clipAudit,sourceLayers:validation.sourceLayers,
+            frameZeroPreserved:validation.initialPosePreserved,
+            drawOrderPreserved:validation.drawOrderPreserved,analysisPresent:plan.analysis!==undefined
+          }));
+          const built=await fetch(GENERATOR+'/api/build',{method:'POST',headers,
+            body:JSON.stringify({canvas:{width:1,height:1},layers,scene}),
+            signal:AbortSignal.timeout(30000)});
+          if(!built.ok)throw Error('Spine ZIP exporter HTTP '+built.status+': '+(await built.text()).slice(0,500));
+          const zip=Buffer.from(await built.arrayBuffer());
+          if(zip.length<200||zip.subarray(0,4).toString('hex')!=='504b0304')
+            throw Error('ZIP header or size is invalid');
+          const path='/tmp/production-ai-spine.zip';
+          await fs.writeFile(path,zip);
+          execFileSync('unzip',['-tq',path],{stdio:'pipe'});
+          const entries=execFileSync('unzip',['-Z1',path],{encoding:'utf8'}).trim().split(/\r?\n/);
+          for(const name of ['skeleton.json','skeleton.atlas','manifest.json'])
+            if(!entries.includes(name))throw Error('ZIP missing '+name);
+          if(!entries.some(name=>/^images\/.+\.png$/.test(name)))
+            throw Error('ZIP has no source texture PNG');
+          const skeleton=JSON.parse(execFileSync('unzip',['-p',path,'skeleton.json'],{encoding:'utf8'}));
+          if(!skeleton.animations||!Object.keys(skeleton.animations).length)
+            throw Error('Spine JSON has no animations');
+          function scan(value,path,found=[]){
+            if(!value||typeof value!=='object')return found;
+            if(Array.isArray(value)){
+              const frames=value.map((frame,index)=>frame&&typeof frame==='object'&&!Array.isArray(frame)&&
+                (Number.isFinite(frame.time)||index===0)?{...frame,time:Number.isFinite(frame.time)?frame.time:0}:null).filter(Boolean);
+              if(frames.length>=2&&new Set(frames.map(frame=>frame.time)).size>=2&&
+                 new Set(frames.map(frame=>JSON.stringify(Object.fromEntries(Object.entries(frame)
+                   .filter(([key])=>!['time','curve','c2','c3'].includes(key)))))).size>=2)
+                found.push(path);
+              value.forEach((child,index)=>scan(child,path+'['+index+']',found));
+            }else for(const [key,child] of Object.entries(value))scan(child,path?path+'.'+key:key,found);
+            return found;
+          }
+          const animationAudit=Object.entries(skeleton.animations).map(([name,animation])=>{
+            const timelines=scan(animation,name);
+            if(!timelines.length)throw Error('Spine animation '+name+' has no changing timeline');
+            return {name,movingTimelines:timelines.length};
+          });
+          const digest=createHash('sha256').update(zip).digest('hex');
+          console.log('PRODUCTION_AI_SPINE_ZIP_PASS',JSON.stringify({
+            bytes:zip.length,sha256:digest,entries:entries.length,animations:animationAudit
+          }));
+          NODE
+      - name: Import ZIP with official Spine 4.3 runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import * as R from '@esotericsoftware/spine-core';
+          import {execFileSync} from 'node:child_process';
+          const path='/tmp/production-ai-spine.zip';
+          const skeleton=JSON.parse(execFileSync('unzip',['-p',path,'skeleton.json'],{encoding:'utf8'}));
+          const atlasText=execFileSync('unzip',['-p',path,'skeleton.atlas'],{encoding:'utf8'});
+          const atlas=new R.TextureAtlas(atlasText);
+          for(const page of atlas.pages)page.setTexture({
+            setFilters(){},setWraps(){},getImage(){return {width:1,height:1}},dispose(){}
+          });
+          const data=new R.SkeletonJson(new R.AtlasAttachmentLoader(atlas)).readSkeletonData(skeleton);
+          const skeletonInstance=new R.Skeleton(data);
+          const names=Object.keys(skeleton.animations||{});
+          if(!names.length)throw Error('Official Spine 4.3 runtime found no animations');
+          for(const name of names){
+            const animation=data.findAnimation(name);
+            if(!animation)throw Error('Official runtime cannot resolve '+name);
+            const state=new R.AnimationState(new R.AnimationStateData(data));
+            state.setAnimation(0,name,false);
+            state.update(Math.max(.001,Math.min(.5,animation.duration/2)));
+            state.apply(skeletonInstance);
+            skeletonInstance.updateWorldTransform(R.Physics.update);
+            for(const bone of skeletonInstance.bones)
+              for(const field of ['worldX','worldY'])
+                if(bone[field]!==undefined&&!Number.isFinite(bone[field]))
+                  throw Error('Non-finite runtime pose '+name+'/'+bone.data.name+'/'+field);
+          }
+          console.log('OFFICIAL_SPINE_4_3_RUNTIME_PASS',JSON.stringify({
+            version:skeleton.skeleton?.spine,animations:names,bones:data.bones.length,
+            slots:data.slots.length,atlasPages:atlas.pages.length
+          }));
+          NODE
