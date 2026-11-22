@@ -541,7 +541,7 @@
       throw Error('Unsupported PSD dimensions');
     const composite = canvasOf(psd.imageData || psd.canvas || psd);
     if (!composite) throw Error('PSD composite is unavailable');
-    const layers = [], names = new Set();
+    const layers = [], sheetItems = [], names = new Set();
     function walk(container, visible = true, opacity = 1) {
       for (const layer of (container.children || []).slice().reverse()) {
         const enabled = visible && layer.hidden !== true;
@@ -562,14 +562,51 @@
         const base = id; let suffix = 1;
         while (names.has(id)) id = base + '_' + suffix++;
         names.add(id);
-        layers.push({ id, image: canvas.toDataURL('image/png'),
+        const layerImage = canvas.toDataURL('image/png');
+        layers.push({ id, image: layerImage,
           bounds: { x: Number(layer.left || 0), y: Number(layer.top || 0),
             width: canvas.width, height: canvas.height } });
+        sheetItems.push({ id, canvas });
       }
     }
     walk(psd);
     if (!layers.length || layers.length > 250) throw Error('PSD needs 1..250 visible raster layers');
-    return { width: psd.width, height: psd.height, composite, layers };
+    let layerSheet = null;
+    if (layers.length > 7) {
+      const columns = Math.min(10, Math.max(4, Math.ceil(Math.sqrt(layers.length * 1.5))));
+      const cellWidth = 180, cellHeight = 150;
+      const rows = Math.ceil(sheetItems.length / columns);
+      const sheet = document.createElement('canvas');
+      sheet.width = columns * cellWidth;
+      sheet.height = rows * cellHeight;
+      const ctx = sheet.getContext('2d');
+      ctx.fillStyle = '#e5e7eb';
+      ctx.fillRect(0, 0, sheet.width, sheet.height);
+      for (let index = 0; index < sheetItems.length; index++) {
+        const item = sheetItems[index];
+        const x = (index % columns) * cellWidth;
+        const y = Math.floor(index / columns) * cellHeight;
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(x + 4, y + 4, cellWidth - 8, cellHeight - 8);
+        const ix = x + 10, iy = y + 10, iw = cellWidth - 20, ih = cellHeight - 44;
+        const tile = 12;
+        for (let ty = 0; ty < ih; ty += tile) {
+          for (let tx = 0; tx < iw; tx += tile) {
+            ctx.fillStyle = ((Math.floor(tx / tile) + Math.floor(ty / tile)) % 2) ? '#e5e7eb' : '#f8fafc';
+            ctx.fillRect(ix + tx, iy + ty, Math.min(tile, iw - tx), Math.min(tile, ih - ty));
+          }
+        }
+        const scale = Math.min(iw / item.canvas.width, ih / item.canvas.height, 1);
+        const dw = item.canvas.width * scale, dh = item.canvas.height * scale;
+        ctx.drawImage(item.canvas, ix + (iw - dw) / 2, iy + (ih - dh) / 2, dw, dh);
+        ctx.fillStyle = '#111827';
+        ctx.font = '12px monospace';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(String(index + 1).padStart(2, '0') + ' ' + item.id, x + 10, y + cellHeight - 22, cellWidth - 20);
+      }
+      layerSheet = sheet.toDataURL('image/png');
+    }
+    return { width: psd.width, height: psd.height, composite, layers, layerSheet };
   }
   // The AI model may time out on complex PSDs. This explicitly labelled
   // technical motion preserves every original source layer at frame zero.
@@ -597,8 +634,8 @@
       preview.getContext('2d').drawImage(source.composite, 0, 0);
       preview.hidden = false;
       const request = JSON.stringify({ image: source.composite.toDataURL('image/png'),
-        layers: source.layers, description: motion,
-        instructions: 'Preserve original draw order and all source layer pixels. Keep frame-zero setup pose. This MUST be a genuinely animated Spine scene, never static keys: author real translate/rotate/scale/shear or mesh-deform timelines with at least two different numeric poses at distinct timestamps in every requested motion clip. Include anticipation, action, follow-through, settle and return where appropriate. Do not emit duplicate keys or empty animations. Verify evaluated poses differ over time while frame zero matches the source. Do not fake 360-degree depth. If returning visual analysis, analysis.subject MUST be an object with a non-empty kind string and finite confidence from 0 to 1; use kind unknown and confidence 0 when semantics are uncertain. analysis.parts MUST be an array; every part needs id, kind, confidence, layerIds and chains arrays. Every chain must have at least two finite in-bounds points. Never return subject as a plain string.' });
+        layers: source.layers, layerSheet: source.layerSheet || undefined, description: motion,
+        instructions: 'Preserve original draw order and all source layer pixels. Keep frame-zero setup pose. This MUST be a genuinely animated Spine scene, never static keys: author real translate/rotate/scale/shear or mesh-deform timelines with at least two different numeric poses at distinct timestamps in every requested motion clip. Include anticipation, action, follow-through, settle and return where appropriate. Do not emit duplicate keys or empty animations. Verify evaluated poses differ over time while frame zero matches the source. Do not fake 360-degree depth. If returning visual analysis, analysis.subject MUST be an object with a non-empty kind string and finite confidence from 0 to 1; use kind unknown and confidence 0 when semantics are uncertain. analysis.parts MUST be an array; every part needs id, kind, confidence, layerIds and chains arrays. Every chain must have at least two finite in-bounds points. Never return subject as a plain string. If a labeled layer contact sheet is attached, use it only to identify source layers; never include the sheet as a source asset.' });
       if (request.length > 19 * 1024 * 1024) throw Error('PSD exceeds cloud planning limit');
       stage = 'AI planning';
       message('Cloud animation in progress…');
