@@ -112,7 +112,7 @@ jobs:
               const skeleton=JSON.stringify({skeleton:{spine:'4.3.26'},bones:[{name:'root'}],
                 slots:[{name:'smoke-layer',bone:'root',attachment:'smoke-layer'}],skins:[],
                 animations:{smoke:{bones:{root:{translate:[{time:0,x:0,y:0},{time:1,x:0,y:pose}]}}}}});
-              const atlas='images/smoke-layer.png\\nsize: 2, 2\\nformat: RGBA8888\\nfilter: Linear, Linear\\nrepeat: none\\npma: false\\nsmoke-layer\\n  bounds: 0, 0, 2, 2\\n  offsets: 0, 0, 2, 2\\n  rotate: false\\n  index: -1\\n';
+              const atlas='images/smoke-layer.png\nsize: 2, 2\nformat: RGBA8888\nfilter: Linear, Linear\nrepeat: none\npma: false\nsmoke-layer\n  bounds: 0, 0, 2, 2\n  offsets: 0, 0, 2, 2\n  rotate: false\n  index: -1\n';
               const manifest=JSON.stringify({version:'1.4.8',backend:'2spine-cloud-executor',spine:'4.3.26',
                 layerCount:1,clipCount:1,validation:{setupPreserved:true,drawOrderPreserved:true,frameZeroPreserved:true},
                 renderEvidence:{status:'not-rendered',frameCount:0},artisticApproval:'pending',releaseReady:false,nativeSpineEditorFile:false});
