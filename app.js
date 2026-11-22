@@ -57,7 +57,10 @@
   }
   const TRANSIENT_PLANNER_HTTP = new Set([408, 425, 429, 500, 502, 503, 504]);
   function isTransientPlannerError(error) {
-    if (error?.remoteCode === 'ANALYSIS_SCHEMA' || /ANALYSIS_SCHEMA|Invalid visual subject/i.test(String(error?.message || ''))) return false;
+    const remoteCode = String(error?.remoteCode || '');
+    const errorMessage = String(error?.message || '');
+    if (['ANALYSIS_SCHEMA', 'VISION_RESPONSE', 'VISION_PLAN', 'VISION_QUOTA', 'VISION_UNAVAILABLE', 'VISION_CONFIGURATION'].includes(remoteCode) ||
+        /ANALYSIS_SCHEMA|Invalid visual subject|Visual model analysis did not pass structural validation|Visual model scene did not pass structural validation/i.test(errorMessage)) return false;
     return error?.code === 'NETWORK_ERROR' || error?.code === 'NETWORK_TIMEOUT' ||
       TRANSIENT_PLANNER_HTTP.has(error?.status);
   }
@@ -349,9 +352,11 @@
         validateAIPlan(plan, source);
         return plan;
       } catch (error) {
+        const remoteCode = String(error?.remoteCode || '');
+        const errorMessage = String(error?.message || '');
         const schemaFailure = error?.code === 'AI_SCHEMA_INVALID' ||
-          error?.remoteCode === 'ANALYSIS_SCHEMA' ||
-          /ANALYSIS_SCHEMA|Invalid visual subject|visual analysis schema/i.test(String(error?.message || ''));
+          ['ANALYSIS_SCHEMA', 'VISION_RESPONSE', 'VISION_PLAN'].includes(remoteCode) ||
+          /ANALYSIS_SCHEMA|Invalid visual subject|visual analysis schema|Visual model analysis did not pass structural validation|Visual model scene did not pass structural validation/i.test(errorMessage);
         if (!schemaFailure || repair >= 1) throw error;
         const corrected = JSON.parse(current);
         corrected.instructions = String(corrected.instructions || '') +
