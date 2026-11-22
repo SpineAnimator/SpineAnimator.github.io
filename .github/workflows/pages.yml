@@ -98,17 +98,20 @@ jobs:
           let staticFixture=false;
           const rgba=new Uint8ClampedArray(2*2*4).fill(255);
           const context={document,ArrayBuffer,TextEncoder,TextDecoder,AbortController,setTimeout,clearTimeout,
+            crypto:{randomUUID:()=> '00000000-0000-4000-8000-000000000002'},
             URL:TrackedURL,ImageData:FakeImageData,HTMLCanvasElement:FakeCanvas,Blob,console,window:{agPsd:{readPsd:()=>({width:2,height:2,
               children:[{name:'smoke-layer',left:0,top:0,imageData:{width:2,height:2,data:rgba}}],
               imageData:{width:2,height:2,data:rgba},fetch:async(url,init)=>{
               requests.push({url,method:init?.method,body:init?.body});
-              const body=url.endsWith('/api/plan')
-                ? JSON.stringify({scene:{
-                    nodes:[{id:'smoke-node',asset:'smoke-layer',transform:{x:0,y:0,z:0,rotation:0,scaleX:1,scaleY:1,opacity:1,depth:0}}],
-                    drawOrder:['smoke-node'],
-                    clips:[{id:'smoke',duration:1,tracks:[{target:'smoke-node',property:'y',keys:[{time:0,value:0},{time:1,value:12}]}]}]
-                  },validation:{initialPosePreserved:true,drawOrderPreserved:true,sourceLayers:1}})
-                : null;
+              const plan={scene:{
+                  nodes:[{id:'smoke-node',asset:'smoke-layer',transform:{x:0,y:0,z:0,rotation:0,scaleX:1,scaleY:1,opacity:1,depth:0}}],
+                  drawOrder:['smoke-node'],
+                  clips:[{id:'smoke',duration:1,tracks:[{target:'smoke-node',property:'y',keys:[{time:0,value:0},{time:1,value:12}]}]}]
+                },validation:{initialPosePreserved:true,drawOrderPreserved:true,sourceLayers:1}};
+              const body=url.endsWith('/api/plan-async')
+                ? JSON.stringify({jobId:'00000000-0000-4000-8000-000000000001',status:'queued'})
+                : url.includes('/api/plan-status')
+                  ? JSON.stringify({status:'complete',plan}) : null;
               const pose=staticFixture?0:12;
               const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAC0lEQVR4nGNgQAcAABIAAXfx+gAAAAAASUVORK5CYII=','base64');
               const skeleton=JSON.stringify({skeleton:{spine:'4.3.26'},bones:[{name:'root'}],
@@ -148,9 +151,10 @@ jobs:
           assert.match(element('status').textContent,/ZIP ready/,'genuinely animated local PSD must reach ZIP export');
           assert.equal(element('download').hidden,false,'successful PSD processing must expose download');
           assert.equal(element('download').href,'blob:psd-upload-smoke');
-          assert.deepEqual(requests.map(x=>x.method),['POST','POST','POST','POST']);
-          assert.ok(requests[0].url.endsWith('/api/plan'),'PSD must reach the planner');
-          assert.ok(requests[1].url.endsWith('/api/build'),'planned PSD must reach the ZIP exporter');
+          assert.deepEqual(requests.map(x=>x.method),['POST','GET','POST','POST','GET','POST']);
+          assert.ok(requests[0].url.endsWith('/api/plan-async'),'PSD must queue through the async planner');
+          assert.ok(requests[1].url.includes('/api/plan-status?id='),'PSD must poll the queued planner job');
+          assert.ok(requests[2].url.endsWith('/api/build'),'planned PSD must reach the ZIP exporter');
           assert.equal(urlConstructions,0,'valid local PSD must never construct a source URL');
           element('source-file').files=[];
           element('source-url').value='not a valid absolute URL';
