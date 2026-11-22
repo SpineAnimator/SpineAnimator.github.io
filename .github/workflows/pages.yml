@@ -973,7 +973,7 @@ jobs:
               layer.id,'  bounds:0,0,'+(layer.bounds?.width||1)+','+(layer.bounds?.height||1),
               '  offsets:0,0,'+(layer.bounds?.width||1)+','+(layer.bounds?.height||1),
               '  rotate:false','  index:-1',''
-            ]).join('\\n');
+            ]).join('\n');
             const manifest={backend:'2spine-cloud-executor',spine:'4.3.26',layerCount:layers.length,
               clipCount:clips.length,validation:{setupPreserved:true,drawOrderPreserved:true,frameZeroPreserved:true},
               renderEvidence:{status:'not-rendered',frameCount:0},artisticApproval:'pending',
