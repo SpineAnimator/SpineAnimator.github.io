@@ -2,7 +2,7 @@
 (() => {
   'use strict';
   const $ = id => document.getElementById(({ create: 'generate', file: 'source-file', url: 'source-url', preview: 'source-preview' })[id] || id);
-  const STUDIO = 'https://spine-studio.spine-animator-f8692224.workers.dev';
+  const PLAN_API = 'https://spine-plan-api.spine-animator-f8692224.workers.dev';
   const EXPORTER = 'https://spine-generator.spine-animator-f8692224.workers.dev';
   let downloadURL = null;
   const LIMIT = 180 * 1024 * 1024;
@@ -65,20 +65,64 @@
       TRANSIENT_PLANNER_HTTP.has(error?.status);
   }
   async function fetchPlannerWithRetry(body) {
-    let lastError;
+    const requestId = crypto.randomUUID();
+    const startUrl = PLAN_API + '/api/plan-async';
+    const statusUrl = PLAN_API + '/api/plan-status?id=';
+    let start = null;
+    let lastError = null;
+
+    // Reuse one request ID across retries: the API's idempotency record prevents
+    // duplicate Workflow instances if the first response is lost in transit.
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        return await fetchLimited(STUDIO + '/api/plan', {
-          method: 'POST', headers: { 'content-type': 'application/json' }, body
-        }, 20 * 1024 * 1024, 'AI planner', 45000);
+        const queued = await fetchLimited(startUrl, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-request-id': requestId },
+          body
+        }, 1024 * 1024, 'AI planner queue', 45000);
+        try { start = JSON.parse(new TextDecoder().decode(queued.bytes)); }
+        catch (_) { throw Error('AI planner queue returned malformed JSON'); }
+        if (!start || typeof start.jobId !== 'string' ||
+            !/^[a-f0-9-]{36}$/i.test(start.jobId))
+          throw Error(start?.error?.message || 'AI planner queue did not return a valid job ID');
+        break;
       } catch (error) {
         lastError = error;
         if (attempt >= 2 || !isTransientPlannerError(error)) throw error;
-        message('AI planner connection interrupted; retry 2/2: ' + String(error.message || error).slice(0, 140));
+        message('AI planner queue interrupted; retrying safely with the same request ID…');
         await new Promise(resolve => setTimeout(resolve, 800));
       }
     }
-    throw lastError || Error('AI planner did not respond');
+    if (!start?.jobId) throw lastError || Error('AI planner did not accept the job');
+
+    const deadline = Date.now() + 9 * 60 * 1000;
+    let lastStatusError = null;
+    while (Date.now() < deadline) {
+      await new Promise(resolve => setTimeout(resolve, 2500));
+      try {
+        const statusResponse = await fetchLimited(
+          statusUrl + encodeURIComponent(start.jobId),
+          { method: 'GET' }, 1024 * 1024, 'AI planner status', 15000
+        );
+        let status;
+        try { status = JSON.parse(new TextDecoder().decode(statusResponse.bytes)); }
+        catch (_) { throw Error('AI planner status returned malformed JSON'); }
+        lastStatusError = null;
+        if (status?.status === 'complete' && status.plan && typeof status.plan === 'object')
+          return { bytes: new TextEncoder().encode(JSON.stringify(status.plan)).buffer };
+        if (status?.status === 'failed' || status?.error)
+          throw Error(status.error?.message || 'AI planning workflow failed');
+        if (!['queued', 'running', 'pending', 'waiting', 'executing'].includes(status?.status))
+          throw Error('AI planner returned an unknown job state: ' + String(status?.status || 'missing'));
+        message('AI planning… ' + Math.floor((Date.now() - (deadline - 9 * 60 * 1000)) / 1000) + 's');
+      } catch (error) {
+        if (!isTransientPlannerError(error)) throw error;
+        lastStatusError = error;
+        message('AI planner status temporarily unavailable; keeping the same job and retrying…');
+      }
+    }
+    throw Error('AI planning exceeded the 9-minute limit' +
+      (lastStatusError ? ': ' + String(lastStatusError.message || lastStatusError).slice(0, 180) : ''));
   }
   async function inspectSpineZip(bytes, plannedClips, source) {
     if (!(bytes instanceof ArrayBuffer) || bytes.byteLength < 22)
