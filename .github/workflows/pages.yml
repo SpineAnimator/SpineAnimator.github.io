@@ -1493,7 +1493,7 @@ jobs:
               }));
               process.exitCode=1;
             }else if(state.status.startsWith('ZIP ready')){
-              assert.equal(planRequests.length,1,'exactly one original AI planning request is expected');
+              assert.ok(planRequests.length>=1 && planRequests.length<=2,'one original AI planning request and at most one schema-repair request are expected');
               assert.equal(buildRequests.length,1,'one real /api/build request must follow a valid AI plan');
               const downloadPromise=page.waitForEvent('download');
               await page.locator('#download').click();
