@@ -982,8 +982,9 @@ jobs:
                   body:JSON.stringify({error:{message:'forced CI upstream AI timeout'}})});
                 return;
               }
+              const mockedPlan=typeof planBody==='function'?planBody(req.postDataJSON()):planBody;
               await route.fulfill({status:200,headers:{...cors,'Content-Type':'application/json'},
-                body:JSON.stringify(planBody || {scene:{clips:[{id:'smoke-idle',duration:1,tracks:[]}]},
+                body:JSON.stringify(mockedPlan || {scene:{clips:[{id:'smoke-idle',duration:1,tracks:[]}]},
                   validation:{initialPosePreserved:true,drawOrderPreserved:true}})});
             });
             await page.route('https://spine-generator.spine-animator-f8692224.workers.dev/api/build',async route=>{
@@ -1186,9 +1187,18 @@ jobs:
             await retryPage.close();
 
             record('ai-unapproved-planner-clip-start');
-            const unapprovedPage=await newPage({planBody:{
-              scene:{clips:[{id:'technical_bounce_unapproved',duration:1,tracks:[]}]},
-              validation:{initialPosePreserved:true,drawOrderPreserved:true}
+            const unapprovedPage=await newPage({planBody:request=>{
+              const layerIds=(request.layers||[]).map(layer=>layer.id);
+              return {
+                scene:{
+                  nodes:layerIds.map(id=>({id,asset:id})),
+                  drawOrder:layerIds,
+                  clips:[{id:'technical_bounce_unapproved',duration:1,tracks:[{
+                    target:layerIds[0],property:'x',keys:[{time:0,value:0},{time:1,value:12}]
+                  }]}]
+                },
+                validation:{initialPosePreserved:true,drawOrderPreserved:true,sourceLayers:layerIds.length}
+              };
             }});
             await unapprovedPage.locator('#prompt').fill('Preserve the source pose and create a short idle animation');
             await unapprovedPage.locator('#source-file').setInputFiles({
@@ -1205,7 +1215,8 @@ jobs:
               downloadHidden:!!document.getElementById('download')?.hidden
             }));
             assert.equal(unapprovedState.layers,38);
-            assert.match(unapprovedState.status,/unapproved technical fallback scene/);
+            assert.match(unapprovedState.status,/AI clip is missing a unique ID, valid duration or authored node tracks/,
+              'reserved technical fallback clip ID must be rejected by the planner schema gate');
             assert.equal(buildRequestsByPage.get(unapprovedPage).length,0,
               'unapproved technical fallback clip must not reach /api/build');
             assert.equal(unapprovedState.downloadHidden,true);
