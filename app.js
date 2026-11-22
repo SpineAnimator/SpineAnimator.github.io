@@ -274,15 +274,21 @@
     function scan(value, path, depth, found) {
       if (!value || typeof value !== 'object' || depth > 16) return;
       if (Array.isArray(value)) {
-        if (/\.bones\.[^.]+\.(translate|rotate|scale|shear)$/.test(path)) {
+        // A visual animation can move bones OR animate slot appearance.
+        // The exporter writes opacity as Spine 4.3 slot.rgba timelines;
+        // rejecting those as static incorrectly discards glow/fade clips.
+        const transformTimeline = /\\.bones\\.[^.]+\\.(translate|rotate|scale|shear)$/.test(path);
+        const slotTimeline = /\\.slots\\.[^.]+\\.(rgba|rgb|rgba2|rgb2|attachment)$/.test(path);
+        if (transformTimeline || slotTimeline) {
           const frames = value.map((frame, index) => frame && typeof frame === 'object' &&
             !Array.isArray(frame) && (Number.isFinite(frame.time) || index === 0)
             ? { ...frame, time: Number.isFinite(frame.time) ? frame.time : 0 } : null).filter(Boolean);
           const poses = new Set(frames.map(frame => JSON.stringify(Object.fromEntries(
             Object.entries(frame).filter(([key]) => !['time', 'curve', 'c2', 'c3'].includes(key))
           ))));
-          if (frames.length >= 2 && new Set(frames.map(frame => frame.time)).size >= 2 && poses.size >= 2)
-            found.push({ path, keys: frames.length, distinctTimes: new Set(frames.map(frame => frame.time)).size });
+          const distinctTimes = new Set(frames.map(frame => frame.time)).size;
+          if (frames.length >= 2 && distinctTimes >= 2 && poses.size >= 2)
+            found.push({ path, keys: frames.length, distinctTimes });
         }
         for (let i = 0; i < value.length; i++) scan(value[i], path + '[' + i + ']', depth + 1, found);
         return;
