@@ -1355,6 +1355,7 @@ jobs:
           path: ${{ runner.temp }}/main-psd-smoke/diagnostics.json
           if-no-files-found: ignore
           retention-days: 7
+      # One-shot live-chain verification after canary ZIP integrity, official Spine 4.3.26 import/export, and Pages CI.
       # Explicitly opt-in via the [prod-psd-e2e] commit marker: one real 38-layer PSD request and ZIP validation.
       - name: Production clgb71 AI planner and Spine ZIP E2E (single bounded request)
         if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[prod-psd-e2e]') }}
