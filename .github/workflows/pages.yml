@@ -24,7 +24,7 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
-    timeout-minutes: 8
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
@@ -1357,7 +1357,7 @@ jobs:
           retention-days: 7
       - name: Production clgb71 AI planner and Spine ZIP E2E (single bounded request)
         if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[prod-psd-e2e]') }}
-        timeout-minutes: 4
+        timeout-minutes: 22
         shell: bash
         run: |
           set -euo pipefail
@@ -1395,7 +1395,7 @@ jobs:
           page.on('request',request=>{
             started.set(request,Date.now());
             const path=new URL(request.url()).pathname;
-            if(request.method()==='POST' && path==='/api/plan')planRequests.push({url:request.url(),at:Date.now()});
+            if(request.method()==='POST' && path==='/api/plan-async')planRequests.push({url:request.url(),at:Date.now()});
             if(request.method()==='POST' && path==='/api/build')buildRequests.push({url:request.url(),at:Date.now()});
           });
           page.on('requestfailed',request=>failures.push({
@@ -1403,13 +1403,13 @@ jobs:
           }));
           page.on('response',response=>{
             const path=new URL(response.url()).pathname;
-            if(path==='/api/plan'||path==='/api/build')
+            if(path==='/api/plan-async'||path==='/api/plan-status'||path==='/api/build')
               responses.push({path,status:response.status(),durationMs:Date.now()-(started.get(response.request())||Date.now())});
           });
 
           // Compact only raster previews sent to AI. Layer IDs, bounds, transforms,
           // draw order and original full-resolution images remain untouched for /api/build.
-          await page.route('https://spine-studio.spine-animator-f8692224.workers.dev/api/plan',async route=>{
+          await page.route('https://spine-plan-api.spine-animator-f8692224.workers.dev/api/plan-async',async route=>{
             const request=route.request();
             if(request.method()!=='POST'){await route.continue();return;}
             const body=request.postDataJSON();
@@ -1468,7 +1468,7 @@ jobs:
             await page.waitForFunction(()=>{
               const status=document.getElementById('status')?.textContent||'';
               return status.includes('ZIP ready')||status.startsWith('Generation failed [');
-            },null,{timeout:180000});
+            },null,{timeout:21*60*1000});
             const state=await page.evaluate(()=>({
               status:document.getElementById('status')?.textContent||'',
               layers:Number(document.getElementById('layer-count')?.textContent||0),
@@ -1489,7 +1489,7 @@ jobs:
               console.log('PRODUCTION_LIVE_AI_FAILED_CLOSED_NO_ZIP_PASS',JSON.stringify({
                 status:state.status,planRequests:planRequests.length,buildRequests:buildRequests.length,responses
               }));
-              process.exitCode=0;
+              process.exitCode=1;
             }else if(state.status.startsWith('ZIP ready')){
               assert.equal(planRequests.length,1,'exactly one original AI planning request is expected');
               assert.equal(buildRequests.length,1,'one real /api/build request must follow a valid AI plan');
