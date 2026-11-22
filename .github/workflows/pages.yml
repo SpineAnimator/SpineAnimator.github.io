@@ -383,6 +383,8 @@ jobs:
             grep -Fq 'Generation failed [' "$RUNNER_TEMP/published-app.js" || return 1
             grep -Fq 'AI planning failed closed:' "$RUNNER_TEMP/published-app.js" || return 1
             grep -Fq 'layerSheet: source.layerSheet || undefined' "$RUNNER_TEMP/published-app.js" || return 1
+            grep -Fq 'canvas: { width: source.width, height: source.height }' "$RUNNER_TEMP/published-app.js" || return 1
+            grep -Fq 'const slotTimeline' "$RUNNER_TEMP/published-app.js" || return 1
             grep -Fq 'No technical fallback ZIP was created.' "$RUNNER_TEMP/published-app.js" || return 1
             if grep -Fq 'function technicalFallbackPlan' "$RUNNER_TEMP/published-app.js" ||
                grep -Fq 'technicalFallback =' "$RUNNER_TEMP/published-app.js"; then
@@ -1381,7 +1383,7 @@ jobs:
       # Re-run the bounded clgb71 real-PSD test against planner-v2 after 38-layer ZIP and official Editor CLI validation.
       # Retry clgb71 against planner-v2.3 with composite plus top-12 layer images and provider error diagnostics.
       # Retry real PSD against planner-v2.5 after optional contact-sheet validation was made non-fatal.
-      # Explicitly opt-in via the [prod-psd-e2e] commit marker: one real 38-layer PSD request and ZIP validation.
+      # Explicitly opt-in via [prod-psd-e2e]: one real 38-layer PSD request, original-canvas fidelity and transform/slot-color timeline ZIP validation.
       - name: Production clgb71 AI planner and Spine ZIP E2E (single bounded request)
         if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[prod-psd-e2e]') }}
         timeout-minutes: 22
