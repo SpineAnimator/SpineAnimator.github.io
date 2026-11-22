@@ -634,6 +634,7 @@
       preview.getContext('2d').drawImage(source.composite, 0, 0);
       preview.hidden = false;
       const request = JSON.stringify({ image: source.composite.toDataURL('image/png'),
+        canvas: { width: source.width, height: source.height },
         layers: source.layers, layerSheet: source.layerSheet || undefined, description: motion,
         instructions: 'Preserve original draw order and all source layer pixels. Keep frame-zero setup pose. This MUST be a genuinely animated Spine scene, never static keys: author real translate/rotate/scale/shear or mesh-deform timelines with at least two different numeric poses at distinct timestamps in every requested motion clip. Include anticipation, action, follow-through, settle and return where appropriate. Do not emit duplicate keys or empty animations. Verify evaluated poses differ over time while frame zero matches the source. Do not fake 360-degree depth. If returning visual analysis, analysis.subject MUST be an object with a non-empty kind string and finite confidence from 0 to 1; use kind unknown and confidence 0 when semantics are uncertain. analysis.parts MUST be an array; every part needs id, kind, confidence, layerIds and chains arrays. Every chain must have at least two finite in-bounds points. Never return subject as a plain string. If a labeled layer contact sheet is attached, use it only to identify source layers; never include the sheet as a source asset.' });
       if (request.length > 19 * 1024 * 1024) throw Error('PSD exceeds cloud planning limit');
