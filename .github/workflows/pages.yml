@@ -1356,6 +1356,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
       # One-shot live-chain verification after canary ZIP integrity, official Spine 4.3.26 import/export, and Pages CI.
+      # Re-run the bounded clgb71 real-PSD test against planner-v2 after 38-layer ZIP and official Editor CLI validation.
       # Explicitly opt-in via the [prod-psd-e2e] commit marker: one real 38-layer PSD request and ZIP validation.
       - name: Production clgb71 AI planner and Spine ZIP E2E (single bounded request)
         if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[prod-psd-e2e]') }}
