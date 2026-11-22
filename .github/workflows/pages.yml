@@ -351,7 +351,7 @@ jobs:
               "https://spineanimator.github.io/?check=$GITHUB_SHA" \
               -o "$RUNNER_TEMP/published-index.html" || return 1
             grep -Fq 'SPINE ANIMATOR' "$RUNNER_TEMP/published-index.html" || return 1
-            grep -Fq 'src="./app.js?v=1.4.8"' "$RUNNER_TEMP/published-index.html" || return 1
+            grep -Fq 'src="./app.js?v=1.4.9"' "$RUNNER_TEMP/published-index.html" || return 1
             grep -Fq '<span class="version">v.1.4.3</span>' "$RUNNER_TEMP/published-index.html" || return 1
             curl -fLsS --max-time 15 \
               "https://spineanimator.github.io/app.js?check=$GITHUB_SHA" \
