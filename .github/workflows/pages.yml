@@ -122,21 +122,26 @@ jobs:
           import assert from 'node:assert/strict';
           import fs from 'node:fs';
           const app=fs.readFileSync('Spine-Mask-Tool/app.js','utf8');
-          const required=[
-            'loadFiles:async files=>importProjectFiles(files,true)',
-            'getSelectableObjects:()=>state.treeChoices.map',
-            'setSelectedObjects:targets=>',
-            'runFullWorkflow:async()=>{',
-            'artifact:{bytes:native.bytes,filename:native.filename}',
-            'id:native.jobId',
-            'inputSha256:native.inputSha256',
-            'outputSha256:native.outputSha256',
-            'getLinuxStatus:()=>state.linuxCI||{status:"idle"}',
-            'return {status:"failed",error:',
-            'if(download)downloadBlob'
-          ];
-          for(const contract of required)assert.ok(app.includes(contract),'Missing SA API contract: '+contract);
+          assert.match(app,/loadFiles:files=>importProjectFiles\\(files,true\\)/,
+            'SA must be able to pass a project without using the file picker');
+          assert.match(app,/runFullWorkflow:\\(\\)=>doEverything\\(\\{awaitNative:true,download:false\\}\\)/,
+            'SA must receive an awaitable result without forced browser downloads');
+          assert.match(app,/status:"needs_selection"/,
+            'ambiguous Spine projects must request explicit object selection');
+          assert.match(app,/status:"needs_bridge"/,
+            'binary Spine projects must fail closed until Bridge conversion is available');
+          assert.match(app,/return \\{status:"ready",artifact,jobId:job.id\\}/,
+            'native Linux Editor output bytes must be returned to SA');
+          assert.match(app,/inputSha256:native.inputSha256/);
+          assert.match(app,/outputSha256:native.outputSha256/);
+          assert.match(app,/receipt:native.receipt/);
+          assert.match(app,/linux:native.linux\\|\\|null/);
+          assert.match(app,/return \\{status:"failed",error:/,
+            'Linux failures must be machine-readable');
+          assert.match(app,/getStatus:\\(\\)=>getMaskAgentStatus\\(\\)/,
+            'SA must be able to inspect mask quality and runtime state');
           console.log('SPINE_MASK_TOOL_SA_AGENT_API_CONTRACT_PASS');
+
           AGENTAPI
           node --input-type=module <<'LANGCHECK'
           import assert from 'node:assert/strict';
