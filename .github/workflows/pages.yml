@@ -1084,31 +1084,36 @@ jobs:
           }
           function smokeZip(request) {
             const layers=request.layers||[],clips=request.scene?.clips||[];
-            const bones=[{name:'root'},...layers.map((_,i)=>({name:'layer_'+i,parent:'root'}))];
-            const slots=layers.map((layer,i)=>({name:'slot_'+i,bone:'layer_'+i,attachment:layer.id}));
+            const width=Number(request.canvas?.width)||1,height=Number(request.canvas?.height)||1;
+            const bones=[{name:'root'}],slots=[],attachments={},atlasPages=[],files={};
+            for(let i=0;i<layers.length;i++){
+              const layer=layers[i],id=String(layer.id),w=Math.max(1,Number(layer.bounds?.width)||1),
+                h=Math.max(1,Number(layer.bounds?.height)||1),x=Number(layer.bounds?.x)||0,y=Number(layer.bounds?.y)||0;
+              const encoded=String(layer.image||'').match(/^data:image\/(?:png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/);
+              if(!encoded)throw Error('Smoke fixture layer has no PNG data URI: '+id);
+              const image=Buffer.from(encoded[1],'base64');
+              if(image.length<32)throw Error('Smoke fixture layer image is truncated: '+id);
+              files['images/'+id+'.png']=image;
+              bones.push({name:'layer_'+i,parent:'root',x:x+w/2-width/2,y:height/2-(y+h/2)});
+              slots.push({name:'slot_'+i,bone:'layer_'+i,attachment:id});
+              attachments['slot_'+i]={[id]:{type:'region',path:id,x:0,y:0,width:w,height:h}};
+              atlasPages.push('images/'+id+'.png','size:'+w+','+h,'format:RGBA8888',
+                'filter:Linear,Linear','repeat:none','',id,'  bounds:0,0,'+w+','+h,
+                '  offsets:0,0,'+w+','+h,'  rotate:false','  index:-1','');
+            }
             const animations=Object.fromEntries(clips.map(clip=>[clip.id,{bones:{
               layer_0:{translate:[{time:0,x:0,y:0},{time:Math.max(0.1,Number(clip.duration)||1),x:12,y:0}]}
             }}]));
-            const skeleton={skeleton:{hash:'ci-smoke',spine:'4.3.26',width:request.canvas?.width||1,
-              height:request.canvas?.height||1,images:'./images/',audio:'./audio'},
-              bones,slots,skins:[{name:'default',attachments:{}}],animations};
-            const atlas=layers.flatMap(layer=>[
-              'images/'+layer.id+'.png','size:1024,1024','format:RGBA8888','filter:Linear,Linear','repeat:none','',
-              layer.id,'  bounds:0,0,'+(layer.bounds?.width||1)+','+(layer.bounds?.height||1),
-              '  offsets:0,0,'+(layer.bounds?.width||1)+','+(layer.bounds?.height||1),
-              '  rotate:false','  index:-1',''
-            ]).join('\n');
+            const skeleton={skeleton:{hash:'ci-smoke',spine:'4.3.26',x:-width/2,y:-height/2,
+              width,height,images:'./images/',audio:'./audio'},
+              bones,slots,skins:[{name:'default',attachments}],animations};
             const manifest={backend:'2spine-cloud-executor',spine:'4.3.26',layerCount:layers.length,
               clipCount:clips.length,validation:{setupPreserved:true,drawOrderPreserved:true,frameZeroPreserved:true},
               renderEvidence:{status:'not-rendered',frameCount:0},artisticApproval:'pending',
               releaseReady:false,nativeSpineEditorFile:false};
-            const files={'skeleton.json':JSON.stringify(skeleton),'skeleton.atlas':atlas,
-              'manifest.json':JSON.stringify(manifest)};
-            for(const layer of layers){
-              const png=Buffer.alloc(24);png.set([137,80,78,71,13,10,26,10]);png.write('IHDR',12,'ascii');
-              png.writeUInt32BE(layer.bounds.width,16);png.writeUInt32BE(layer.bounds.height,20);
-              files['images/'+layer.id+'.png']=png;
-            }
+            files['skeleton.json']=JSON.stringify(skeleton);
+            files['skeleton.atlas']=atlasPages.join('\n');
+            files['manifest.json']=JSON.stringify(manifest);
             return zipStored(files);
           }
           async function newPage({planStatus=200,planBody=null}={}){
@@ -1314,12 +1319,45 @@ jobs:
                 '; console=' + JSON.stringify(consoleMessages) + '; failedRequests=' +
                 JSON.stringify(failedRequests) + '; cause=' + error.message);
             });
+            await page.waitForFunction(()=>{
+              const status=document.getElementById('status')?.textContent || '';
+              return status.includes('WebM preview ready') || status.includes('WebM preview unavailable') ||
+                status.startsWith('Generation failed [');
+            },null,{timeout:60000}).catch(async error=>{
+              const diagnostic=await page.evaluate(()=>({
+                status:document.getElementById('status')?.textContent||'',
+                video:!!document.querySelector('.chat-result-message video'),
+                previewLinks:[...document.querySelectorAll('.chat-result-message a')].map(a=>a.textContent)
+              }));
+              throw new Error('WebM preview stage timed out: '+JSON.stringify(diagnostic)+
+                '; browserErrors='+JSON.stringify(errors)+'; failedRequests='+JSON.stringify(failedRequests)+
+                '; cause='+error.message);
+            });
+            await page.waitForFunction(()=>{
+              const video=document.querySelector('.chat-result-message video');
+              return !!video && video.readyState>=2 && video.videoWidth>0 && video.videoHeight>0 &&
+                Number.isFinite(video.duration) && video.duration>0.25;
+            },null,{timeout:30000}).catch(async error=>{
+              const diagnostic=await page.evaluate(()=>{
+                const video=document.querySelector('.chat-result-message video');
+                return {status:document.getElementById('status')?.textContent||'',
+                  video:!!video,readyState:video?.readyState,width:video?.videoWidth,height:video?.videoHeight,
+                  duration:video?.duration,source:video?.currentSrc};
+              });
+              throw new Error('WebM did not decode in the production chat: '+JSON.stringify(diagnostic)+
+                '; browserErrors='+JSON.stringify(errors)+'; failedRequests='+JSON.stringify(failedRequests)+
+                '; cause='+error.message);
+            });
             const state=await page.evaluate(()=>({
               layers:Number(document.getElementById('layer-count').textContent),
               dimensions:document.getElementById('source-size').textContent,
               sourceName:document.getElementById('source-name').textContent,
               previewVisible:!document.getElementById('source-preview').hidden,
               downloadVisible:!document.getElementById('download').hidden,
+              webmVisible:!!document.querySelector('.chat-result-message video'),
+              webmDecoded:(()=>{const v=document.querySelector('.chat-result-message video');return !!v&&v.readyState>=2&&v.videoWidth>0&&v.videoHeight>0&&v.duration>0.25;})(),
+              webmDimensions:(()=>{const v=document.querySelector('.chat-result-message video');return v?{width:v.videoWidth,height:v.videoHeight,duration:v.duration}:null;})(),
+              webmDownload:[...document.querySelectorAll('.chat-result-message a')].some(a=>a.textContent==='Download WebM preview'),
               status:document.getElementById('status').textContent
             }));
             if(!state.status.includes('ZIP ready'))
@@ -1328,7 +1366,12 @@ jobs:
             assert.match(state.dimensions,/\d+ × \d+/);
             assert.equal(state.previewVisible,true,mode+' PSD preview missing');
             assert.equal(state.downloadVisible,true,mode+' did not reach ZIP export');
-            assert.match(state.status,/ZIP ready/);
+            assert.equal(state.webmVisible,true,mode+' did not render a WebM player in the chat');
+            assert.equal(state.webmDecoded,true,mode+' WebM preview did not decode');
+            assert.equal(state.webmDownload,true,mode+' WebM preview download link missing');
+            assert.ok(state.webmDimensions.width>0&&state.webmDimensions.height>0&&state.webmDimensions.duration>0.25,
+              mode+' WebM preview has invalid dimensions or duration');
+            assert.match(state.status,/WebM preview ready/);
             assert.equal(planRequests.length>=1,true,mode+' did not reach planner');
             const plan=planRequests.at(-1);
             assert.ok(Array.isArray(plan.layers)&&plan.layers.length===state.layers,
