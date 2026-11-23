@@ -187,7 +187,7 @@
   }
   async function segmentPng(source){
     const width=source.width,height=source.height,total=width*height;
-    if(total>12000000)throw Error('AI contour segmentation is limited to 12 megapixels per PNG to protect browser memory. Resize the source and retry.');
+    if(total>6000000)throw Error('AI contour segmentation is limited to 6 megapixels per PNG to protect browser memory. Resize the source and retry.');
     const ctx=source.getContext('2d',{willReadFrequently:true}),pixels=ctx.getImageData(0,0,width,height).data;
     let visible=0,x0=width,y0=height,x1=-1,y1=-1;
     for(let y=0;y<height;y++)for(let x=0;x<width;x++)if(pixels[(y*width+x)*4+3]>8){visible++;if(x<x0)x0=x;if(y<y0)y0=y;if(x>x1)x1=x;if(y>y1)y1=y;}
@@ -210,6 +210,7 @@
     if(maskWidth!==width||maskHeight!==height)throw Error('AI mask dimensions do not match the source PNG.');
     const candidates=[];
     for(let p=0;p<pointCount;p++)for(let m=0;m<maskCount;m++){
+      if(candidates.length>=24)continue;
       const score=Number(scores?.[p*maskCount+m]??0);if(score<.55)continue;
       const mask=new Uint8Array(total),offset=(p*maskCount+m)*maskPixels;let area=0;
       for(let i=0;i<total;i++){if(data[offset+i]&&pixels[i*4+3]>8){mask[i]=1;area++;}}
