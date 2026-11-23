@@ -1044,6 +1044,7 @@ jobs:
           } finally {await browser.close();}
           NODE
           node "$RUNNER_TEMP/mask-smoke/smoke.mjs"
+      # Regression gate: preserves repeated original names while technical IDs remain unique.
       - name: One-shot duplicate PSD source-layer name preservation diagnostic
         if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[source-layer-map-e2e]') }}
         timeout-minutes: 2
