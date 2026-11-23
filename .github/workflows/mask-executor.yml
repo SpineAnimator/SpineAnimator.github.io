@@ -49,7 +49,7 @@ jobs:
         run: |
           set -euo pipefail
           if grep -nE 'SOURCE_REPO_TOKEN|spine-animator-private|RUNNER_TOKEN|secrets\.' \
-            .github/workflows/mask-executor.yml Spine-Mask-Tool/tests/mask-executor.test.mjs; then
+            Spine-Mask-Tool/tests/mask-executor.test.mjs Spine-Mask-Tool/core.js; then
             echo '::error::Private repository or secret dependency detected'
             exit 1
           fi
