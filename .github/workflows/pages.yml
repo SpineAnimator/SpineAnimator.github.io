@@ -432,6 +432,77 @@ jobs:
           echo "LIVE_PAGES_HTML_AND_JS_PASS $PUBLIC_PAGE_URL" >> "$GITHUB_STEP_SUMMARY"
           echo "LIVE_SPINE_MASK_TOOL_PASS https://spineanimator.github.io/Spine-Mask-Tool/" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Browser E2E — SlimSAM PNG masks and layered PSD export
+        shell: bash
+        timeout-minutes: 15
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/spine-scripts-contour"
+          npm install --prefix "$RUNNER_TEMP/spine-scripts-contour" --no-audit --no-fund --silent playwright@1.56.1
+          CHROME_PATH="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
+          if [ -z "$CHROME_PATH" ]; then
+            "$RUNNER_TEMP/spine-scripts-contour/node_modules/.bin/playwright" install chromium
+          fi
+          export CHROME_PATH
+          cat > "$RUNNER_TEMP/spine-scripts-contour/contour.mjs" <<'NODE'
+          import assert from 'node:assert/strict';
+          import fs from 'node:fs/promises';
+          import { chromium } from 'playwright';
+          const opts={headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--enable-unsafe-webgpu','--use-angle=swiftshader']};
+          if(process.env.CHROME_PATH)opts.executablePath=process.env.CHROME_PATH;
+          const browser=await chromium.launch(opts);
+          const page=await browser.newPage({acceptDownloads:true});
+          const errors=[];
+          page.on('pageerror',e=>errors.push(e.message));
+          try{
+            const response=await page.goto('https://spineanimator.github.io/spine-scripts/?contour-e2e='+Date.now(),{waitUntil:'domcontentloaded',timeout:60000});
+            assert.equal(response.status(),200,'Spine Scripts route must return 200');
+            await page.waitForFunction(()=>!!window.agPsd?.readPsd&&!!document.querySelector('#sourceFile'),{timeout:45000});
+            const pngBase64=await page.evaluate(async()=>{
+              const source=await fetch('https://huggingface.co/datasets/Xenova/transformers.js-docs/resolve/main/corgi.jpg');
+              if(!source.ok)throw new Error('Could not load the public SAM smoke image: '+source.status);
+              const bitmap=await createImageBitmap(await source.blob());
+              const canvas=document.createElement('canvas');canvas.width=bitmap.width;canvas.height=bitmap.height;
+              canvas.getContext('2d').drawImage(bitmap,0,0);bitmap.close();
+              return await new Promise((resolve,reject)=>canvas.toBlob(async blob=>{
+                if(!blob)return reject(new Error('Could not encode contour smoke PNG'));
+                const bytes=new Uint8Array(await blob.arrayBuffer());
+                let binary='';for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));
+                resolve(btoa(binary));
+              },'image/png'));
+            });
+            await page.locator('#sourceFile').setInputFiles({name:'sam-corgi.png',mimeType:'image/png',buffer:Buffer.from(pngBase64,'base64')});
+            await page.waitForFunction(()=>['AI MASKS READY','PREPARE FAILED'].includes(document.querySelector('#previewState')?.textContent),{timeout:10*60*1000});
+            const state=await page.evaluate(()=>({state:document.querySelector('#previewState')?.textContent,
+              layerCount:document.querySelector('#layerCount')?.textContent,
+              rows:document.querySelectorAll('#layerList .layer-item').length,
+              downloadDisabled:document.querySelector('#downloadPsd')?.disabled,
+              status:document.querySelector('#leftStatus')?.textContent}));
+            assert.equal(state.state,'AI MASKS READY','SlimSAM must return pixel masks: '+JSON.stringify(state));
+            assert.ok(state.rows>0,'At least one transparent mask layer must be created');
+            assert.equal(state.downloadDisabled,false,'Layered PSD download must be enabled');
+            const downloadWait=page.waitForEvent('download');
+            await page.locator('#downloadPsd').click();
+            const download=await downloadWait;
+            const path=await download.path();
+            const bytes=await fs.readFile(path);
+            assert.ok(bytes.length>26,'Layered PSD must not be empty');
+            assert.equal(bytes.subarray(0,4).toString('ascii'),'8BPS','Layered PSD must have a Photoshop signature');
+            const parsed=await page.evaluate(b64=>{
+              const binary=atob(b64),bytes=new Uint8Array(binary.length);
+              for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);
+              const doc=window.agPsd.readPsd(bytes.buffer,{useImageData:true,skipThumbnail:true});
+              return {width:doc.width,height:doc.height,layers:(doc.children||[]).length,
+                names:(doc.children||[]).map(layer=>layer.name||'unnamed')};
+            },bytes.toString('base64'));
+            assert.ok(parsed.width>0&&parsed.height>0,'PSD canvas dimensions must be valid');
+            assert.ok(parsed.layers>0,'PSD must contain real layer records');
+            assert.deepEqual(errors,[],'No browser runtime errors are allowed');
+            console.log('SPINE_SCRIPTS_CONTOUR_E2E_PASS '+JSON.stringify({state,psd:{width:parsed.width,height:parsed.height,layers:parsed.layers}}));
+          }finally{await browser.close();}
+          NODE
+          node --check "$RUNNER_TEMP/spine-scripts-contour/contour.mjs"
+          node "$RUNNER_TEMP/spine-scripts-contour/contour.mjs"
       - name: Browser smoke — upload PNG, generate mask, select target, download JSON
         shell: bash
         run: |
