@@ -2003,3 +2003,58 @@ jobs:
             echo "API_PREFLIGHT_PASS $endpoint" >> "$GITHUB_STEP_SUMMARY"
             rm -f "$headers"
           done
+
+      - name: Verify connected Cloudflare service health and archive capability
+        shell: bash
+        run: |
+          set -euo pipefail
+          origin='https://spineanimator.github.io'
+          health() {
+            curl --silent --show-error --fail --retry 3 --retry-delay 2 --max-time 15 \
+              --header "Origin: $origin" "$1"
+          }
+          drive="$(health 'https://spine-drive-source.spine-animator-f8692224.workers.dev/api/health')"
+          jq -e '.ok == true and .service == "2spine-drive-source"' <<<"$drive" >/dev/null
+          echo "DRIVE_SOURCE_HEALTH_PASS $drive" >> "$GITHUB_STEP_SUMMARY"
+
+          cache="$(health 'https://spine-psd-cache.spine-animator-f8692224.workers.dev/api/health')"
+          jq -e '.ok == true and .cache == "workers-kv" and .ingest == "github-oidc"' <<<"$cache" >/dev/null
+          echo "PSD_CACHE_HEALTH_PASS $cache" >> "$GITHUB_STEP_SUMMARY"
+
+          generator="$(health 'https://spine-generator.spine-animator-f8692224.workers.dev/api/health')"
+          jq -e '.ok == true and .version == "1.5.0" and .format == "spine-4.3.26-zip"' <<<"$generator" >/dev/null
+          echo "SPINE_GENERATOR_HEALTH_PASS $generator" >> "$GITHUB_STEP_SUMMARY"
+
+          planner="$(health 'https://spine-plan-api.spine-animator-f8692224.workers.dev/api/health')"
+          jq -e '.ok == true and .asyncPlanning == true and .asyncQueue == true' <<<"$planner" >/dev/null
+          echo "ASYNC_PLANNER_HEALTH_PASS $planner" >> "$GITHUB_STEP_SUMMARY"
+
+          archive="$(health 'https://spine-archive.spine-animator-f8692224.workers.dev/api/health')"
+          jq -e '.ok == true' <<<"$archive" >/dev/null
+          echo "SPINE_ARCHIVE_HEALTH $archive" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$(jq -r '.privateArchive' <<<"$archive")" != "true" ]]; then
+            echo "::warning::Private GitHub library access is not configured. Add GITHUB_LIBRARY_TOKEN directly as a Cloudflare Worker Secret; never place it in chat or a public Actions run."
+            echo "PRIVATE_GITHUB_LIBRARY_NOT_CONNECTED — GITHUB_LIBRARY_TOKEN is absent from the Worker secret bindings." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "PRIVATE_GITHUB_LIBRARY_CONNECTED" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+          preflight() {
+            local endpoint="$1" method="$2" requested_headers="$3" headers status
+            headers="$(mktemp)"
+            status="$(curl --silent --show-error --retry 3 --retry-delay 2 --max-time 15 \
+              --output /dev/null --dump-header "$headers" --request OPTIONS \
+              --header "Origin: $origin" \
+              --header "Access-Control-Request-Method: $method" \
+              --header "Access-Control-Request-Headers: $requested_headers" \
+              --write-out '%{http_code}' "$endpoint")"
+            if [[ "$status" != 200 && "$status" != 204 ]]; then
+              echo "::error::Service preflight HTTP $status for $endpoint"
+              exit 1
+            fi
+            grep -Fiq "access-control-allow-origin: $origin" "$headers"
+            rm -f "$headers"
+            echo "SERVICE_PREFLIGHT_PASS $endpoint" >> "$GITHUB_STEP_SUMMARY"
+          }
+          preflight 'https://spine-drive-source.spine-animator-f8692224.workers.dev/api/psd-source' GET 'content-type'
+          preflight 'https://spine-archive.spine-animator-f8692224.workers.dev/api/session' POST 'content-type,authorization'
