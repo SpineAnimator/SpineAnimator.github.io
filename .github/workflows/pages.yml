@@ -498,19 +498,24 @@ jobs:
             assert.ok(parsed.width>0&&parsed.height>0,'PSD canvas dimensions must be valid');
             assert.ok(parsed.layers>0,'PSD must contain real layer records');
             let plannerPayload=null,exportPayload=null;
+            const cors={'access-control-allow-origin':'https://spineanimator.github.io',
+              'access-control-allow-methods':'GET, POST, OPTIONS',
+              'access-control-allow-headers':'Content-Type, X-Request-ID'};
             await page.route('https://spine-plan-api.spine-animator-f8692224.workers.dev/api/plan-async',async route=>{
+              if(route.request().method()==='OPTIONS')return route.fulfill({status:204,headers:cors});
               plannerPayload=JSON.parse(route.request().postData()||'{}');
-              await route.fulfill({status:202,contentType:'application/json',body:JSON.stringify({jobId:'00000000-0000-4000-8000-000000000001',status:'queued'})});
+              await route.fulfill({status:202,headers:cors,contentType:'application/json',body:JSON.stringify({jobId:'00000000-0000-4000-8000-000000000001',status:'queued'})});
             });
             await page.route('https://spine-plan-api.spine-animator-f8692224.workers.dev/api/plan-status**',async route=>{
               const nodes=(plannerPayload?.layers||[]).map(layer=>({id:layer.id,asset:layer.id,transform:{x:0,y:0,z:0,rotation:0,scaleX:1,scaleY:1,opacity:1,depth:0}}));
               const scene={nodes,drawOrder:nodes.map(node=>node.id),clips:[{id:'contour-smoke',duration:1,tracks:nodes.length?[{target:nodes[0].id,property:'x',keys:[{time:0,value:0},{time:1,value:1}]}]:[]}]};
-              await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({status:'complete',plan:{scene}})});
+              await route.fulfill({status:200,headers:cors,contentType:'application/json',body:JSON.stringify({status:'complete',plan:{scene}})});
             });
             await page.route('https://spine-generator.spine-animator-f8692224.workers.dev/api/build',async route=>{
+              if(route.request().method()==='OPTIONS')return route.fulfill({status:204,headers:cors});
               exportPayload=JSON.parse(route.request().postData()||'{}');
               const zip=Buffer.from([0x50,0x4b,0x03,0x04,...new Array(20).fill(0)]);
-              await route.fulfill({status:200,contentType:'application/zip',body:zip});
+              await route.fulfill({status:200,headers:cors,contentType:'application/zip',body:zip});
             });
             await page.locator('#motion').fill('Subtle breathing and a gentle head turn; preserve the setup pose.');
             const zipWait=page.waitForEvent('download').then(download=>({download}),error=>({error}));
