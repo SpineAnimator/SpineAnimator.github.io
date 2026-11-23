@@ -1164,7 +1164,7 @@
       try {
         const selectedAnimation = animationAudit.animationNames[0];
         const preview = await renderSpineWebmPreview(optimizedAudit.files, selectedAnimation);
-        attachWebmPreview({
+        await attachWebmPreview({
           ...preview,
           files: optimizedAudit.files,
           animationNames: animationAudit.animationNames,
@@ -1238,7 +1238,7 @@
     chatPreviewSpeedSelect = null;
     chatPreviewScale = null;
   }
-  function attachWebmPreview(payload) {
+  async function attachWebmPreview(payload) {
     if (!payload || !payload.blob) return;
     pendingWebmPreview = payload;
     if (!chatResultBubble) return;
@@ -1268,7 +1268,7 @@
           try {
             const selectedAnimation = select.value;
             const next = await renderSpineWebmPreview(current.files, selectedAnimation);
-            attachWebmPreview({
+            await attachWebmPreview({
               ...next,
               files: current.files,
               animationNames: current.animationNames,
@@ -1341,6 +1341,27 @@
     if (webmPreviewURL) URL.revokeObjectURL(webmPreviewURL);
     webmPreviewURL = URL.createObjectURL(payload.blob);
     chatPreviewVideo.src = webmPreviewURL;
+    await new Promise((resolve, reject) => {
+      const video = chatPreviewVideo;
+      let settled = false;
+      const finish = (callback, value) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        video.removeEventListener('loadeddata', onReady);
+        video.removeEventListener('error', onError);
+        callback(value);
+      };
+      const onReady = () => finish(resolve);
+      const onError = () => finish(reject, Error('WebM video decode failed' +
+        (video.error?.code ? ' (MediaError ' + video.error.code + ')' : '')));
+      const timer = setTimeout(() => finish(reject, Error('WebM preview did not decode within 15 seconds')),
+        15000);
+      video.addEventListener('loadeddata', onReady);
+      video.addEventListener('error', onError);
+      if (video.readyState >= 2 && video.videoWidth > 0 && video.videoHeight > 0) onReady();
+      else video.load();
+    });
     chatPreviewVideo.style.aspectRatio = Math.max(1, Number(payload.width) || 16) + ' / ' +
       Math.max(1, Number(payload.height) || 9);
     chatPreviewVideo.playbackRate = chatPreviewSpeedSelect ? Number(chatPreviewSpeedSelect.value) : 1;
