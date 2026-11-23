@@ -47,8 +47,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if grep -nE 'SOURCE_REPO_TOKEN|spine-animator-private|RUNNER_TOKEN|secrets\\.' \\
-            Spine-Mask-Tool/tests/mask-executor.test.mjs Spine-Mask-Tool/core.js; then
+          if grep -nE 'SOURCE_REPO_TOKEN|spine-animator-private|RUNNER_TOKEN|secrets[.]' Spine-Mask-Tool/tests/mask-executor.test.mjs Spine-Mask-Tool/core.js; then
             echo '::error::Private repository or secret dependency detected'
             exit 1
           fi
