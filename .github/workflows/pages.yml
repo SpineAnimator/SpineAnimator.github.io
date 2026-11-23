@@ -1112,7 +1112,7 @@ jobs:
               slots.push({name:'slot_'+i,bone:'layer_'+i,attachment:id});
               attachments['slot_'+i]={[id]:{type:'region',path:id,x:0,y:0,width:w,height:h}};
               atlasPages.push('images/'+id+'.png','size:'+w+','+h,'format:RGBA8888',
-                'filter:Linear,Linear','repeat:none','',id,'  bounds:0,0,'+w+','+h,
+                'filter:Linear,Linear','repeat:none',id,'  bounds:0,0,'+w+','+h,
                 '  offsets:0,0,'+w+','+h,'  rotate:false','  index:-1','');
             }
             const animations=Object.fromEntries(clips.map(clip=>[clip.id,{bones:{
