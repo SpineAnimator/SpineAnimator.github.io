@@ -1666,7 +1666,12 @@ jobs:
             started.set(request,Date.now());
             const path=new URL(request.url()).pathname;
             if(request.method()==='POST' && path==='/api/plan-async')planRequests.push({url:request.url(),at:Date.now()});
-            if(request.method()==='POST' && path==='/api/build')buildRequests.push({url:request.url(),at:Date.now()});
+            if(request.method()==='POST' && path==='/api/build'){
+              const body=request.postDataJSON()||{};
+              buildRequests.push({url:request.url(),at:Date.now(),sourceLayers:(body.sourceLayers||[]).map(layer=>({
+                id:layer.id,sourceName:layer.sourceName,sourceIndex:layer.sourceIndex
+              }))});
+            }
           });
           page.on('requestfailed',request=>failures.push({
             url:request.url(),method:request.method(),error:request.failure()?.errorText||''
@@ -1802,9 +1807,11 @@ jobs:
               const sourceLayerMap=JSON.parse(execFileSync('unzip',['-p',zipPath,'source-layer-map.json'],{encoding:'utf8'}));
               assert.equal(manifest.sourceLayerNamesPreserved,true,'production ZIP must preserve original PSD layer names');
               assert.equal(sourceLayerMap.sourceLayers.length,38,'source-layer map must contain all 38 PSD layers');
+              assert.equal(buildRequests[0].sourceLayers.length,38,'export request must carry all source-name records');
               assert.ok(sourceLayerMap.sourceLayers.every((layer,index)=>
-                layer.sourceName===planRequests[0].layers[index].sourceName &&
-                layer.id===planRequests[0].layers[index].id && layer.sourceIndex===index),
+                layer.sourceName===buildRequests[0].sourceLayers[index].sourceName &&
+                layer.id===buildRequests[0].sourceLayers[index].id &&
+                layer.sourceIndex===buildRequests[0].sourceLayers[index].sourceIndex && layer.sourceIndex===index),
                 'source-layer map must preserve exact names and order from the PSD parser');
               assert.equal(new Set(sourceLayerMap.sourceLayers.map(layer=>layer.id)).size,38,
                 'technical IDs must remain unique even when original names repeat');
