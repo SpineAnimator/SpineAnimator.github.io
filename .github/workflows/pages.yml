@@ -1546,6 +1546,7 @@ jobs:
       # Retry clgb71 against planner-v2.3 with composite plus top-12 layer images and provider error diagnostics.
       # Retry real PSD against planner-v2.5 after optional contact-sheet validation was made non-fatal.
       # Explicitly opt-in via [prod-psd-e2e]: one real 38-layer PSD request, original-canvas fidelity, motion-error key reduction and 50k key-budget ZIP validation.
+      # [prod-psd-e2e] Also require a real decoded Spine 4.3 WebM preview from the production planner ZIP.
       - name: Production clgb71 AI planner and Spine ZIP E2E (single bounded request)
         if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[prod-psd-e2e]') }}
         timeout-minutes: 22
@@ -1660,6 +1661,27 @@ jobs:
               const status=document.getElementById('status')?.textContent||'';
               return status.includes('ZIP ready')||status.startsWith('Generation failed [');
             },null,{timeout:21*60*1000});
+            if((document.getElementById('status')?.textContent||'').includes('ZIP ready')){
+              await page.waitForFunction(()=>{
+                const status=document.getElementById('status')?.textContent||'';
+                return status.includes('WebM preview ready')||status.includes('WebM preview unavailable');
+              },null,{timeout:90000});
+              const preview=await page.evaluate(()=>{
+                const video=document.querySelector('.chat-result-message video');
+                return {status:document.getElementById('status')?.textContent||'',
+                  exists:!!video,readyState:video?.readyState||0,width:video?.videoWidth||0,
+                  height:video?.videoHeight||0,duration:Number(video?.duration)||0,
+                  download:[...document.querySelectorAll('.chat-result-message a')]
+                    .some(a=>a.textContent==='Download WebM preview')};
+              });
+              assert.equal(preview.status.includes('WebM preview ready'),true,
+                'live AI-generated Spine ZIP must produce a WebM preview: '+JSON.stringify(preview));
+              assert.equal(preview.exists,true,'live preview video element missing');
+              assert.ok(preview.readyState>=2&&preview.width>0&&preview.height>0&&preview.duration>0.25,
+                'live AI-generated WebM did not decode: '+JSON.stringify(preview));
+              assert.equal(preview.download,true,'live WebM download link missing');
+              console.log('PRODUCTION_CLGB71_LIVE_SPINE_WEBM_DECODED',JSON.stringify(preview));
+            }
             const state=await page.evaluate(()=>({
               status:document.getElementById('status')?.textContent||'',
               layers:Number(document.getElementById('layer-count')?.textContent||0),
