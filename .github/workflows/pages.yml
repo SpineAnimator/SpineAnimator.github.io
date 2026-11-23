@@ -1052,7 +1052,7 @@ jobs:
           set -euo pipefail
           node --input-type=module <<'NODE'
           import assert from 'node:assert/strict';
-          import { writeFileSync } from 'node:fs';
+          import { writeFileSync, readFileSync } from 'node:fs';
           import { execFileSync } from 'node:child_process';
           const endpoint='https://3spine-public.spine-animator-f8692224.workers.dev/api/build';
           const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAC0lEQVR4nGNgQAcAABIAAXfx+gAAAAAASUVORK5CYII=','base64');
@@ -1078,17 +1078,14 @@ jobs:
             camera:{mode:'orthographic',x:0,y:0,z:0,focalLength:1000,near:1,parallax:0},
             constraints:[],emitters:[],bindings:[]
           };
-          const response=await fetch(endpoint,{
-            method:'POST',
-            headers:{'content-type':'application/json',origin:'https://spineanimator.github.io'},
-            body:JSON.stringify({canvas:{width:2,height:2},scene,layers,sourceLayers,sourceFileName:'duplicate-orn-fixture.psd'}),
-            signal:AbortSignal.timeout(60000)
-          });
-          const zip=Buffer.from(await response.arrayBuffer());
-          assert.equal(response.status,200,'duplicate-name build failed: '+zip.toString('utf8').slice(0,500));
-          assert.deepEqual([...zip.subarray(0,4)],[0x50,0x4b,0x03,0x04]);
+          const payloadPath=process.env.RUNNER_TEMP+'/duplicate-orn-layer-map-request.json';
           const zipPath=process.env.RUNNER_TEMP+'/duplicate-orn-layer-map.zip';
-          writeFileSync(zipPath,zip);
+          writeFileSync(payloadPath,JSON.stringify({canvas:{width:2,height:2},scene,layers,sourceLayers,sourceFileName:'duplicate-orn-fixture.psd'}));
+          const status=execFileSync('curl',['-sS','--max-time','60','-H','Origin: https://spineanimator.github.io',
+            '-H','Content-Type: application/json','--data-binary','@'+payloadPath,'-o',zipPath,'-w','%{http_code}',endpoint],{encoding:'utf8'}).trim();
+          const zip=readFileSync(zipPath);
+          assert.equal(status,'200','duplicate-name build failed HTTP '+status+': '+zip.toString('utf8').slice(0,500));
+          assert.deepEqual([...zip.subarray(0,4)],[0x50,0x4b,0x03,0x04]);
           execFileSync('unzip',['-tq',zipPath],{stdio:'pipe'});
           const manifest=JSON.parse(execFileSync('unzip',['-p',zipPath,'manifest.json'],{encoding:'utf8'}));
           const map=JSON.parse(execFileSync('unzip',['-p',zipPath,'source-layer-map.json'],{encoding:'utf8'}));
