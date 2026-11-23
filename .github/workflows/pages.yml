@@ -80,13 +80,13 @@ jobs:
           function element(id){
             if(elements.has(id))return elements.get(id);
             const value={id,files:[],value:'',textContent:'',hidden:false,disabled:false,href:'',
-              handlers:{},className:'',classList:{add(){},remove(){}},
+              handlers:{},className:'',style:{},classList:{add(){},remove(){}},
               addEventListener(type,fn){(this.handlers[type]??=[]).push(fn)},
               setAttribute(){},getAttribute(){return null},appendChild(){},append(){},remove(){},scrollIntoView(){},
               getContext(){return {putImageData(){},drawImage(){}};}};
             elements.set(id,value);return value;
           }
-          const document={body:{classList:{add(){},remove(){}}},
+          const document={body:{classList:{add(){},remove(){}},appendChild(){}},
             getElementById:id=>element(id),
             createElement:tag=>tag==='canvas'?canvas():element('created-'+tag)};
           let urlConstructions=0;
@@ -99,10 +99,37 @@ jobs:
           class FakeImageData{constructor(data,width,height){this.data=data;this.width=width;this.height=height;}}
           const requests=[];
           let staticFixture=false;
+          let previewRecorderCalls=0, previewConfig=null;
+          class FakeMediaRecorder{
+            constructor(stream,options){this.state='inactive';this.mimeType=options?.mimeType||'video/webm';previewRecorderCalls++;}
+            static isTypeSupported(){return true;}
+            start(){this.state='recording';}
+            stop(){
+              this.state='inactive';
+              setTimeout(()=>{
+                this.ondataavailable?.({data:new Blob([new Uint8Array(2048)],{type:this.mimeType})});
+                this.onstop?.();
+              },0);
+            }
+          }
+          const fakeSpine={SpinePlayer:class{
+            constructor(id,config){
+              previewConfig=config;
+              const gl={drawingBufferWidth:640,drawingBufferHeight:360,RGBA:6408,UNSIGNED_BYTE:5121,
+                readPixels(x,y,w,h,format,type,pixels){pixels.fill(255);}};
+              const canvas={width:640,height:360,getContext(){return gl;},
+                captureStream(){return {getTracks:()=>[{stop(){}}]};}};
+              const runtimeData={animations:[{name:'smoke',duration:1}],findAnimation:()=>({duration:1})};
+              const player={canvas,skeletonData:runtimeData,animationState:{
+                clearTracks(){},setAnimation(){},getCurrent(){return {animation:{duration:1}};}
+              },paused:false,dispose(){}};
+              config.success(player);
+            }
+          }};
           const rgba=new Uint8ClampedArray(2*2*4).fill(255);
           const context={document,ArrayBuffer,TextEncoder,TextDecoder,AbortController,setTimeout,clearTimeout,
             crypto:{randomUUID:()=> '00000000-0000-4000-8000-000000000002'},
-            URL:TrackedURL,ImageData:FakeImageData,HTMLCanvasElement:FakeCanvas,Blob,console,window:{agPsd:{readPsd:()=>({width:2,height:2,
+            URL:TrackedURL,ImageData:FakeImageData,HTMLCanvasElement:FakeCanvas,Blob,MediaRecorder:FakeMediaRecorder,console,window:{MediaRecorder:FakeMediaRecorder,spine:fakeSpine,agPsd:{readPsd:()=>({width:2,height:2,
               children:[{name:'smoke-layer',left:0,top:0,imageData:{width:2,height:2,data:rgba}}],
               imageData:{width:2,height:2,data:rgba},fetch:async(url,init)=>{
               requests.push({url,method:init?.method,body:init?.body});
@@ -154,6 +181,12 @@ jobs:
           assert.match(element('status').textContent,/ZIP ready/,'genuinely animated local PSD must reach ZIP export');
           assert.equal(element('download').hidden,false,'successful PSD processing must expose download');
           assert.equal(element('download').href,'blob:psd-upload-smoke');
+          assert.match(element('status').textContent,/WebM preview ready/,
+            'a valid Spine ZIP must be rendered to a WebM preview before completion');
+          assert.equal(previewRecorderCalls,1,'the actual Spine Player canvas must be captured with MediaRecorder');
+          assert.equal(previewConfig.animation,'smoke','the preview must use the ZIP animation, not a placeholder');
+          assert.equal(previewConfig.textures.length,1,'the preview must load the atlas texture page');
+          assert.ok(previewConfig.skeleton && previewConfig.atlas,'the preview must load the generated Spine skeleton and atlas');
           assert.deepEqual(requests.map(x=>x.method),['POST','GET','POST','POST','GET','POST']);
           assert.ok(requests[0].url.endsWith('/api/plan-async'),'PSD must queue through the async planner');
           assert.ok(requests[1].url.includes('/api/plan-status?id='),'PSD must poll the queued planner job');
@@ -316,8 +349,11 @@ jobs:
           git ls-files --error-unmatch .nojekyll README.md app.js index.html .github/workflows/pages.yml .github/workflows/mask-tool-agent-api.yml .github/workflows/production-ai-canary.yml Spine-Mask-Tool/core.js Spine-Mask-Tool/app.js Spine-Mask-Tool/index.html Spine-Mask-Tool/linux-api.js spine-scripts/app.js spine-scripts/index.html >/dev/null
           test "$(git ls-files | wc -l)" -eq 13 || { echo "::error::Unsafe extra file in public Pages repository"; exit 1; }
           test -s index.html && test -s app.js
-          grep -Fq '<span class="version">v.1.4.11</span>' index.html || { echo "::error::Expected website v1.4.11"; exit 1; }
+          grep -Fq '<span class="version">v.1.4.12</span>' index.html || { echo "::error::Expected website v1.4.12"; exit 1; }
           grep -Fq 'src="./app.js' index.html || { echo "::error::Missing audited app.js reference"; exit 1; }
+          grep -Fq 'function renderSpineWebmPreview' app.js || { echo "::error::Missing browser Spine WebM renderer"; exit 1; }
+          grep -Fq 'captureStream(30)' app.js || { echo "::error::Missing canvas video capture"; exit 1; }
+          grep -Fq 'Download WebM preview' app.js || { echo "::error::Missing chat WebM download link"; exit 1; }
           if grep -nEi 'github_pat_|ghp_[A-Za-z0-9]{20}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|ACCESS_TOKEN|SPINE_LICENSE_KEY|CLOUDFLARE_API_TOKEN' index.html app.js Spine-Mask-Tool/index.html Spine-Mask-Tool/app.js Spine-Mask-Tool/core.js Spine-Mask-Tool/linux-api.js spine-scripts/index.html spine-scripts/app.js; then
             echo "::error::Potential private credentials in public Pages"; exit 1
           fi
@@ -379,8 +415,8 @@ jobs:
             grep -Fq 'GitHub + Photoshop'\`'2Spine' "$RUNNER_TEMP/published-spine-scripts.html" || return 1
             curl -fLsS --max-time 15 "https://spineanimator.github.io/spine-scripts/app.js?check=$GITHUB_SHA" -o "$RUNNER_TEMP/published-spine-scripts.js" || return 1
             node --check "$RUNNER_TEMP/published-spine-scripts.js" || return 1
-            grep -Fq 'src="./app.js?v=1.4.11"' "$RUNNER_TEMP/published-index.html" || return 1
-            grep -Fq '<span class="version">v.1.4.11</span>' "$RUNNER_TEMP/published-index.html" || return 1
+            grep -Fq 'src="./app.js?v=1.4.12"' "$RUNNER_TEMP/published-index.html" || return 1
+            grep -Fq '<span class="version">v.1.4.12</span>' "$RUNNER_TEMP/published-index.html" || return 1
             curl -fLsS --max-time 15 \
               "https://spineanimator.github.io/app.js?check=$GITHUB_SHA" \
               -o "$RUNNER_TEMP/published-app.js" || return 1
@@ -393,6 +429,9 @@ jobs:
             grep -Fq 'canvas: { width: source.width, height: source.height }' "$RUNNER_TEMP/published-app.js" || return 1
             grep -Fq 'const slotTimeline' "$RUNNER_TEMP/published-app.js" || return 1
             grep -Fq 'No technical fallback ZIP was created.' "$RUNNER_TEMP/published-app.js" || return 1
+            grep -Fq 'function renderSpineWebmPreview' "$RUNNER_TEMP/published-app.js" || return 1
+            grep -Fq 'captureStream(30)' "$RUNNER_TEMP/published-app.js" || return 1
+            grep -Fq 'Download WebM preview' "$RUNNER_TEMP/published-app.js" || return 1
             if grep -Fq 'function technicalFallbackPlan' "$RUNNER_TEMP/published-app.js" ||
                grep -Fq 'technicalFallback =' "$RUNNER_TEMP/published-app.js"; then
               echo 'PAGES_VERIFY_TECHNICAL_FALLBACK_EXECUTOR_STILL_PRESENT'
