@@ -427,8 +427,8 @@ jobs:
             curl -fLsS --max-time 15 "https://spineanimator.github.io/spine-scripts/?check=$GITHUB_SHA" -o "$RUNNER_TEMP/published-spine-scripts.html" || return 1
             grep -Fq 'Browser Parser' "$RUNNER_TEMP/published-spine-scripts.html" || return 1
             grep -Fq 'Parser provenance:' "$RUNNER_TEMP/published-spine-scripts.html" || return 1
-            grep -Fq 'Adobe Photoshop is not invoked' "$RUNNER_TEMP/published-spine-scripts.html" || return 1
-            grep -Fq 'Pixel parity with Photoshop is unverified' "$RUNNER_TEMP/published-spine-scripts.html" || return 1
+            grep -Fq 'no external image editor is invoked' "$RUNNER_TEMP/published-spine-scripts.html" || return 1
+            grep -Fq 'Pixel-level equivalence is not certified' "$RUNNER_TEMP/published-spine-scripts.html" || return 1
             grep -Fq 'Real PSB compatibility remains experimental' "$RUNNER_TEMP/published-spine-scripts.html" || return 1
             grep -Fq 'app.js?v=20261123b' "$RUNNER_TEMP/published-spine-scripts.html" || return 1
             curl -fLsS --max-time 15 "https://spineanimator.github.io/spine-scripts/app.js?check=$GITHUB_SHA" -o "$RUNNER_TEMP/published-spine-scripts.js" || return 1
