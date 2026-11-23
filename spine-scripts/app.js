@@ -136,7 +136,7 @@
     const ext=file.name.split('.').pop().toLowerCase();
     if(!['psd','psb','png'].includes(ext)){status('leftStatus','Choose a PSD, PSB or PNG file.','error');return;}
     if(file.size>180*1024*1024){status('leftStatus','File exceeds the 180 MB browser intake limit.','error');return;}
-    state.file=file;state.kind=ext;state.psd=null;state.layers=[];state.selected.clear();state.prepared=false;
+    state.file=file;state.kind=ext;state.psd=null;state.layers=[];state.selected.clear();state.prepared=false;$('downloadPsd').disabled=true;
     $('workspace').classList.add('has-file');$('fileInfo').classList.add('show');
     $('fileName').textContent=file.name;$('fileType').textContent=ext.toUpperCase();$('fileMeta').textContent=bytesLabel(file.size);
     $('previewName').textContent=file.name;$('previewState').textContent='LOADED';
@@ -215,7 +215,7 @@
       if(bestScore<.55)continue;
       const mask=new Uint8Array(total),offset=(p*maskCount+best)*maskPixels;let area=0;
       for(let i=0;i<total;i++){if(data[offset+i]&&pixels[i*4+3]>8){mask[i]=1;area++;}}
-      if(area<Math.max(24,visible*.001)||area>visible*.995)continue;
+      if(area<Math.max(24,visible*.001)||(area>visible*.995&&candidates.length))continue;
       const bounds=maskBounds(mask,width,height);if(!bounds)continue;
       if(candidates.some(c=>maskIoU(mask,c.mask)>.88))continue;
       candidates.push({mask,score:bestScore,bounds});
@@ -324,7 +324,7 @@
       const composite=sceneCanvas.toDataURL('image/png');
       const layers=selected.map(x=>({id:x.id,image:x.canvas.toDataURL('image/png'),bounds:x.bounds}));
       const body=JSON.stringify({image:composite,canvas:{width:state.psd.width,height:state.psd.height},layers,description,
-        instructions:'Preserve original draw order and every source pixel. Keep frame-zero setup pose identical. Create genuinely animated Spine scene clips with different numeric poses at distinct timestamps. Do not emit static fallback motion, empty clips, duplicate keys, or invented source layers. Preserve all supplied source layer IDs and bounds.'});
+        instructions:state.kind==='png'?'The source is one flattened PNG partitioned into disjoint AI-generated pixel masks. There is no original layer order or hidden anatomy to infer. Preserve the supplied region order and exact source composite at frame zero; treat mask regions as visual cutouts, not anatomical labels. Keep every supplied source mask exactly once. Create genuinely animated Spine scene clips with different numeric poses at distinct timestamps. Do not emit static fallback motion, empty clips, duplicate keys, or invented source layers.':'Preserve original Photoshop draw order and every source pixel. Keep frame-zero setup pose identical. Create genuinely animated Spine scene clips with different numeric poses at distinct timestamps. Do not emit static fallback motion, empty clips, duplicate keys, or invented source layers. Preserve all supplied source layer IDs and bounds.'});
       if(body.length>19*1024*1024)throw Error('AI request exceeds the planner 19 MiB limit. Reduce source size or layer count.');
       status('agentStatus','Queued with the AI animation planner…');
       const plan=await requestPlan(body);
