@@ -64,45 +64,99 @@
     const candidates=[psd.imageData,psd.canvas,psd].map(canvasOf).filter(Boolean);
     const composite=candidates.find(c=>c.width===psd.width&&c.height===psd.height);
     if(!composite)throw Error('PSD composite is missing or does not match the original canvas.');
-    const rows=[],flat=[],names=new Set(),unsupported=[];
+    const rows=[],flat=[],sourceLayers=[],names=new Set(),unsupported=[];
     const ignoreHidden=$('ignoreHidden').checked,ignoreBg=$('ignoreBackground').checked;
     const scale=Number($('scale').value)/100,padding=Number($('padding').value),trim=$('trimWhitespace').checked;
-    function walk(group,depth=0,parentVisible=true){
+    let sourceIndex=0;
+    const hasData=value=>!!value&&(Array.isArray(value)?value.length>0:typeof value==='object'?Object.keys(value).length>0:true);
+    const safeId=value=>String(value||'layer').replace(/[^\w.-]/g,'_').slice(0,70)||'layer';
+    function addUnsupported(name,reason){unsupported.push(name+': '+reason);}
+    function inspectFeatures(layer,name){
+      const reasons=[];
+      const blend=String(layer.blendMode||'normal').toLowerCase();
+      if(layer.adjustment)addUnsupported(name,'adjustment layers are not supported');
+      if(hasData(layer.text)||hasData(layer.textData)||hasData(layer.typeTool))addUnsupported(name,'text layers are not supported');
+      if(hasData(layer.smartObject)||hasData(layer.placedLayer)||hasData(layer.linkedLayer))addUnsupported(name,'smart or linked objects are not supported');
+      if(hasData(layer.mask)||hasData(layer.userMask)||hasData(layer.realMask)||hasData(layer.layerMask))addUnsupported(name,'layer masks are not supported');
+      if(hasData(layer.vectorMask)||hasData(layer.vectorFill)||hasData(layer.shape))addUnsupported(name,'vector layers or vector masks are not supported');
+      if(hasData(layer.effects)||hasData(layer.layerEffects)||hasData(layer.filterMask))addUnsupported(name,'layer effects and filter masks are not supported');
+      if(layer.clipping)addUnsupported(name,'clipping masks are not supported');
+      if(blend&&!['normal','pass through','passthrough'].includes(blend))addUnsupported(name,'blend mode '+blend+' is not supported');
+      const opacity=layer.opacity===undefined?255:Number(layer.opacity);
+      if(!Number.isFinite(opacity)||opacity!==255)addUnsupported(name,'layer opacity other than 100% is not supported');
+      const fillOpacity=layer.fillOpacity===undefined?255:Number(layer.fillOpacity);
+      if(!Number.isFinite(fillOpacity)||fillOpacity!==255)addUnsupported(name,'fill opacity other than 100% is not supported');
+      if(layer.knockout)addUnsupported(name,'knockout compositing is not supported');
+      return reasons;
+    }
+    function walk(group,depth=0,parentVisible=true,groupPath=[]){
       const children=(group.children||[]).slice().reverse();
       for(const layer of children){
+        const index=sourceIndex++;
+        const sourceName=typeof layer.name==='string'?layer.name:'Layer '+index;
         const visible=parentVisible&&layer.hidden!==true;
         if(ignoreHidden&&!visible)continue;
-        if(ignoreBg&&((layer.name||'').toLowerCase()==='background'||layer.isBackground))continue;
-        if(layer.name&&/\[ignore\]/i.test(layer.name))continue;
-        const tagMatch=(layer.name||'').match(/\[(bone|slot|skin|mesh|linkedmesh|clip|overlay|merge|draworder|event)\]/i);
-        if(tagMatch)unsupported.push((layer.name||'Unnamed')+': PhotoshopToSpine tag ['+tagMatch[1]+'] is not yet mapped by the web exporter');
-        if(layer.children?.length){
-          rows.push({type:'group',name:layer.name||'Group',depth,visible});
-          walk(layer,depth+1,visible);continue;
+        if(ignoreBg&&((sourceName||'').toLowerCase()==='background'||layer.isBackground))continue;
+        let id=safeId(sourceName);
+        if(names.has(id))id=id+'__record_'+index;
+        let suffix=1;while(names.has(id))id=safeId(sourceName)+'__record_'+index+'_'+suffix++;
+        names.add(id);
+        const sourceRecordId=layer.layerId??layer.id??null;
+        const opacity=layer.opacity===undefined?255:Number(layer.opacity);
+        const isGroup=Array.isArray(layer.children)&&layer.children.length>0;
+        const left=Number(layer.left||0),top=Number(layer.top||0);
+        const rawCanvas=isGroup?null:canvasOf(layer.imageData||layer.canvas||layer);
+        const sourceBounds={x:left,y:top,width:rawCanvas?.width||Math.max(0,Number(layer.right||left)-left),height:rawCanvas?.height||Math.max(0,Number(layer.bottom||top)-top)};
+        const record={id,sourceName,sourceIndex:index,sourceRecordId:sourceRecordId===null?null:String(sourceRecordId),
+          kind:isGroup?'group':'raster',visible,opacity,depth,groupPath:[...groupPath],bounds:sourceBounds,selected:false};
+        if(/\[ignore\]/i.test(sourceName)){
+          record.kind='ignored';record.excludedReason='ignore-tag';sourceLayers.push(record);continue;
         }
-        if(layer.adjustment)continue;
-        if(layer.clipping||layer.blendMode&& !['normal','pass through'].includes(layer.blendMode)){
-          unsupported.push((layer.name||'Unnamed')+': '+(layer.clipping?'clipping layer':'blend mode '+layer.blendMode));continue;
+        sourceLayers.push(record);
+        const tagMatch=sourceName.match(/\[(bone|slot|skin|mesh|linkedmesh|clip|overlay|merge|draworder|event)\]/i);
+        if(tagMatch)addUnsupported(sourceName,'PhotoshopToSpine tag ['+tagMatch[1]+'] is not mapped by the browser exporter');
+        inspectFeatures(layer,sourceName);
+        if(isGroup){
+          rows.push({type:'group',name:sourceName,depth,visible,sourceIndex:index});
+          walk(layer,depth+1,visible,[...groupPath,sourceName]);continue;
         }
-        const original=canvasOf(layer.imageData||layer.canvas||layer);
-        if(!original)continue;
-        let id=String(layer.name||'layer').replace(/[^\w.-]/g,'_').slice(0,70)||'layer';
-        const base=id;let n=1;while(names.has(id))id=base+'_'+n++;names.add(id);
-        const attachment=makeAttachment(original,scale,padding,trim);
-        const x=Number(layer.left||0)+attachment.offset.x,y=Number(layer.top||0)+attachment.offset.y;
-        const item={id,name:layer.name||id,depth,canvas:attachment.canvas,selected:true,
-          bounds:{x:Math.round(x*scale-padding*scale),y:Math.round(y*scale-padding*scale),width:attachment.bounds.width,height:attachment.bounds.height}};
+        if(!rawCanvas){
+          if(layer.adjustment||hasData(layer.text)||hasData(layer.smartObject)||hasData(layer.vectorMask))record.kind='unsupported';
+          else record.kind='empty';
+          continue;
+        }
+        const attachment=makeAttachment(rawCanvas,scale,padding,trim);
+        const x=left+attachment.offset.x,y=top+attachment.offset.y;
+        const item={...record,canvas:attachment.canvas,selected:true,sourceBounds,
+          bounds:{x:Math.round(x*scale-padding*scale),y:Math.round(y*scale-padding*scale),
+            width:attachment.bounds.width,height:attachment.bounds.height}};
+        record.selected=true;record.exportId=id;
         flat.push(item);rows.push({type:'layer',item,depth});
       }
     }
     walk(psd);
-    if(!flat.length)throw Error('No supported visible raster layers found.');
+    if(!flat.length)throw Error('No supported raster layers found.');
     if(flat.length>250)throw Error('This web pipeline currently accepts up to 250 raster layers.');
     const outWidth=Math.round(psd.width*scale),outHeight=Math.round(psd.height*scale);
     const rendered=document.createElement('canvas');rendered.width=outWidth;rendered.height=outHeight;
     const renderContext=rendered.getContext('2d');
-    for(const layer of flat.slice().reverse())renderContext.drawImage(layer.canvas,layer.bounds.x,layer.bounds.y);
-    return{width:outWidth,height:outHeight,originalWidth:psd.width,originalHeight:psd.height,composite:rendered,layers:flat,rows,unsupported};
+    for(const layer of flat.slice().reverse())if(layer.visible)renderContext.drawImage(layer.canvas,layer.bounds.x,layer.bounds.y);
+    let compositeAudit={status:'not-checked',reason:'Scaling, trimming or padding changes source geometry.'};
+    if(scale===1&&!trim&&padding===0){
+      const original=composite.getContext('2d',{willReadFrequently:true}).getImageData(0,0,psd.width,psd.height).data;
+      const rebuilt=rendered.getContext('2d',{willReadFrequently:true}).getImageData(0,0,psd.width,psd.height).data;
+      let mismatchPixels=0,maxChannelDelta=0;
+      for(let p=0;p<original.length;p+=4){
+        let changed=false;
+        for(let k=0;k<4;k++){const delta=Math.abs(original[p+k]-rebuilt[p+k]);if(delta){changed=true;if(delta>maxChannelDelta)maxChannelDelta=delta;}}
+        if(changed)mismatchPixels++;
+      }
+      compositeAudit={status:mismatchPixels===0?'exact':'mismatch',mismatchPixels,maxChannelDelta,
+        width:psd.width,height:psd.height,comparison:'ag-psd merged composite vs visible raster-layer reconstruction'};
+      if(mismatchPixels)addUnsupported('PSD composite','visible raster layers differ from the embedded merged image at '+mismatchPixels+' pixels; export is locked');
+    }
+    return{width:outWidth,height:outHeight,originalWidth:psd.width,originalHeight:psd.height,
+      composite:rendered,layers:flat,rows,sourceLayers,compositeAudit,unsupported};
   }
   function drawPreview(canvas){
     const target=$('previewCanvas'),area=$('previewArea');
