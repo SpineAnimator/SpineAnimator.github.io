@@ -6,6 +6,8 @@
   const PLAN_API = 'https://spine-plan-api.spine-animator-f8692224.workers.dev';
   const EXPORTER = 'https://spine-generator.spine-animator-f8692224.workers.dev';
   let downloadURL = null;
+  let webmPreviewURL = null;
+  let spinePlayerLoader = null;
   const LIMIT = 180 * 1024 * 1024;
   function message(text) { $('status').textContent = text; }
   function clearDownload() {
@@ -535,7 +537,7 @@
     const optimizedBytes = packStoredZip(files);
     return { report: { animationNames: actualAnimations, movingTimelines: moving,
       zipEntries: files.size, textureFiles: textureNames, manifest, keyframeOptimization },
-      bytes: optimizedBytes };
+      bytes: optimizedBytes, files };
   }
 
   function aiSchemaError(message) {
@@ -860,6 +862,189 @@
   // The AI model may time out on complex PSDs. This explicitly labelled
   // technical motion preserves every original source layer at frame zero.
   // It is not an artistic animation or a substitute for the user's prompt.
+  function loadSpinePlayer() {
+    if (window.spine && typeof window.spine.SpinePlayer === 'function') return Promise.resolve();
+    if (spinePlayerLoader) return spinePlayerLoader;
+    spinePlayerLoader = new Promise((resolve, reject) => {
+      if (!window.__saSpinePlayerCssLoaded) {
+        const css = document.createElement('link');
+        css.rel = 'stylesheet';
+        css.href = 'https://cdn.jsdelivr.net/npm/@esotericsoftware/spine-player@4.3.13/dist/spine-player.css';
+        document.head.appendChild(css);
+        window.__saSpinePlayerCssLoaded = true;
+      }
+      const script = document.createElement('script');
+      script.src = 'https://cdn.jsdelivr.net/npm/@esotericsoftware/spine-player@4.3.13/dist/iife/spine-player.js';
+      script.async = true;
+      script.onload = () => {
+        if (window.spine && typeof window.spine.SpinePlayer === 'function') resolve();
+        else reject(Error('Spine 4.3 runtime loaded without SpinePlayer'));
+      };
+      script.onerror = () => reject(Error('Spine 4.3 runtime CDN could not be loaded'));
+      document.head.appendChild(script);
+    }).catch(error => {
+      spinePlayerLoader = null;
+      throw error;
+    });
+    return spinePlayerLoader;
+  }
+
+  async function renderSpineWebmPreview(files, requestedAnimation) {
+    const Recorder = typeof MediaRecorder === 'function' ? MediaRecorder : window.MediaRecorder;
+    if (typeof Recorder !== 'function') throw Error('This browser does not support WebM recording');
+    if (!(files instanceof Map)) throw Error('Verified Spine ZIP contents are unavailable');
+    const decoder = new TextDecoder();
+    const skeletonBytes = files.get('skeleton.json');
+    const atlasBytes = files.get('skeleton.atlas');
+    if (!skeletonBytes || !atlasBytes) throw Error('Spine ZIP is missing its skeleton or atlas');
+    const skeleton = JSON.parse(decoder.decode(skeletonBytes));
+    const animationNames = Object.keys(skeleton.animations || {});
+    const animationName = animationNames.includes(requestedAnimation) ? requestedAnimation : animationNames[0];
+    if (!animationName) throw Error('Spine project contains no animation to preview');
+    const atlasText = decoder.decode(atlasBytes);
+    const pageNames = atlasText.split(/\r?\n/)
+      .filter(line => line && !/^\s/.test(line) && /\.(png|jpe?g|webp)$/i.test(line.trim()))
+      .map(line => line.trim());
+    const imageNames = [...files.keys()].filter(name => /\.(png|jpe?g|webp)$/i.test(name)).sort();
+    const pages = pageNames.length ? pageNames : imageNames;
+    if (!pages.length) throw Error('Spine atlas has no texture pages');
+    const temporaryUrls = [];
+    function objectUrl(bytes, type) {
+      const url = URL.createObjectURL(new Blob([bytes], { type }));
+      temporaryUrls.push(url);
+      return url;
+    }
+    function findPage(name) {
+      if (files.has(name)) return name;
+      const basename = name.split('/').pop();
+      const matches = imageNames.filter(file => file === basename || file.endsWith('/' + basename));
+      return matches.length === 1 ? matches[0] : '';
+    }
+    const textureUrls = pages.map(page => {
+      if (page.split('/').includes('..')) throw Error('Spine atlas contains an unsafe texture path');
+      const file = findPage(page);
+      if (!file) throw Error('Spine atlas texture page is missing: ' + page);
+      const extension = file.split('.').pop().toLowerCase();
+      const mime = extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg' :
+        extension === 'webp' ? 'image/webp' : 'image/png';
+      return objectUrl(files.get(file), mime);
+    });
+    const skeletonUrl = objectUrl(skeletonBytes, 'application/json');
+    const atlasUrl = objectUrl(atlasBytes, 'text/plain');
+    const container = document.createElement('div');
+    container.id = 'sa-spine-render-' + Date.now() + '-' + Math.random().toString(36).slice(2);
+    container.style.cssText = 'position:fixed;left:-10000px;top:0;width:640px;height:360px;overflow:hidden;pointer-events:none;z-index:-1;';
+    document.body.appendChild(container);
+    let player = null;
+    let stream = null;
+    try {
+      await loadSpinePlayer();
+      player = await new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => reject(Error('Spine Player did not finish loading within 45 seconds')), 45000);
+        try {
+          new window.spine.SpinePlayer(container.id, {
+            skeleton: skeletonUrl,
+            atlas: atlasUrl,
+            textures: textureUrls,
+            animation: animationName,
+            showControls: false,
+            premultipliedAlpha: false,
+            preserveDrawingBuffer: true,
+            alpha: true,
+            backgroundColor: '#00000000',
+            viewport: { padLeft: '0%', padRight: '0%', padTop: '0%', padBottom: '0%' },
+            success: instance => {
+              clearTimeout(timeout);
+              resolve(instance);
+            },
+            error: (instance, error) => {
+              clearTimeout(timeout);
+              reject(Error('Spine Player failed: ' + String(error || 'unknown runtime error').slice(0, 300)));
+            }
+          });
+        } catch (error) {
+          clearTimeout(timeout);
+          reject(error);
+        }
+      });
+      const runtimeData = player.skeleton && player.skeleton.data || player.skeletonData;
+      const runtimeNames = Array.isArray(runtimeData?.animations)
+        ? runtimeData.animations.map(item => item && item.name).filter(Boolean) : animationNames;
+      if (!runtimeNames.includes(animationName)) throw Error('Selected animation is not available in Spine 4.3 runtime');
+      if (!player.animationState || typeof player.animationState.setAnimation !== 'function')
+        throw Error('Spine Player did not expose its animation state');
+      player.animationState.clearTracks();
+      player.animationState.setAnimation(0, animationName, true);
+      player.paused = false;
+      await new Promise(resolve => setTimeout(resolve, 650));
+      const canvas = player.canvas;
+      if (!canvas || !(canvas.width > 0 && canvas.height > 0) || typeof canvas.captureStream !== 'function')
+        throw Error('Spine Player did not produce a capturable canvas');
+      const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
+      if (gl && typeof gl.readPixels === 'function') {
+        try {
+          const width = Math.min(48, gl.drawingBufferWidth || canvas.width);
+          const height = Math.min(48, gl.drawingBufferHeight || canvas.height);
+          const pixels = new Uint8Array(width * height * 4);
+          gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+          let visible = false;
+          for (let i = 0; i < pixels.length; i += 4) {
+            if (pixels[i + 3] > 0 && (pixels[i] > 0 || pixels[i + 1] > 0 || pixels[i + 2] > 0)) {
+              visible = true;
+              break;
+            }
+          }
+          if (!visible) throw Error('Spine runtime rendered a blank frame');
+        } catch (error) {
+          if (/blank frame/.test(String(error?.message || error))) throw error;
+        }
+      }
+      const animationObject = typeof runtimeData?.findAnimation === 'function'
+        ? runtimeData.findAnimation(animationName)
+        : runtimeData?.animations?.find(item => item && item.name === animationName);
+      const track = player.animationState.getCurrent ? player.animationState.getCurrent(0) : null;
+      const sourceDuration = Number(animationObject?.duration) || Number(track?.animation?.duration) || 0;
+      const captureDuration = Math.min(6, Math.max(0.5, sourceDuration || 2));
+      player.animationState.clearTracks();
+      player.animationState.setAnimation(0, animationName, true);
+      player.paused = false;
+      await new Promise(resolve => setTimeout(resolve, 100));
+      stream = canvas.captureStream(30);
+      const mimeCandidates = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
+      const mimeType = mimeCandidates.find(type =>
+        typeof Recorder.isTypeSupported !== 'function' || Recorder.isTypeSupported(type)) || '';
+      const recorder = mimeType ? new Recorder(stream, { mimeType }) : new Recorder(stream);
+      const blob = await new Promise((resolve, reject) => {
+        const chunks = [];
+        recorder.ondataavailable = event => {
+          if (event.data && event.data.size > 0) chunks.push(event.data);
+        };
+        recorder.onerror = event => reject(Error('WebM recording failed: ' +
+          String(event?.error?.message || event?.message || 'MediaRecorder error')));
+        recorder.onstop = () => resolve(new Blob(chunks, {
+          type: recorder.mimeType || mimeType || 'video/webm'
+        }));
+        try {
+          recorder.start(250);
+          setTimeout(() => {
+            if (recorder.state === 'recording') recorder.stop();
+          }, captureDuration * 1000);
+        } catch (error) {
+          reject(error);
+        }
+      });
+      if (blob.size < 512 || !/^video\/webm/i.test(blob.type || 'video/webm'))
+        throw Error('Spine Player returned an empty or invalid WebM recording');
+      return { blob, width: canvas.width, height: canvas.height, duration: captureDuration };
+    } finally {
+      if (stream && typeof stream.getTracks === 'function')
+        for (const track of stream.getTracks()) try { track.stop(); } catch {}
+      if (player && typeof player.dispose === 'function') try { player.dispose(); } catch {}
+      if (container && typeof container.remove === 'function') container.remove();
+      for (const url of temporaryUrls) try { URL.revokeObjectURL(url); } catch {}
+    }
+  }
+
   async function create() {
     clearDownload();
     $('create').disabled = true;
@@ -917,7 +1102,21 @@
       downloadURL = URL.createObjectURL(new Blob([result.bytes], { type: 'application/zip' }));
       $('download').href = downloadURL;
       $('download').hidden = false;
-      message('ZIP ready. Check animations in Spine Editor 4.3 before production.');
+      message('ZIP ready. Rendering Spine 4.3 WebM preview…');
+      try {
+        const selectedAnimation = animationAudit.animationNames[0];
+        const preview = await renderSpineWebmPreview(optimizedAudit.files, selectedAnimation);
+        attachWebmPreview({
+          ...preview,
+          files: optimizedAudit.files,
+          animationNames: animationAudit.animationNames,
+          selectedAnimation
+        });
+        message('ZIP ready. WebM preview ready. Check import in Spine Editor 4.3.26 before production.');
+      } catch (previewError) {
+        message('ZIP ready. WebM preview unavailable: ' +
+          String(previewError?.message || previewError).slice(0, 220));
+      }
     } catch (error) {
       const detail = error?.name === 'AbortError' ? '15-second network timeout' :
         (error?.message || String(error));
@@ -937,6 +1136,12 @@
   const chatWelcome = $('chat-welcome');
   let chatStatusBubble = null;
   let chatResultBubble = null;
+  let pendingWebmPreview = null;
+  let chatPreviewVideo = null;
+  let chatPreviewDownloadLink = null;
+  let chatPreviewAnimationSelect = null;
+  let chatPreviewSpeedSelect = null;
+  let chatPreviewScale = null;
   function chatAppend(text, kind) {
     const value = String(text || '').trim();
     if (!value || !chatHistory) return null;
@@ -967,6 +1172,131 @@
   function clearChatResult() {
     if (chatResultBubble) { chatResultBubble.remove(); chatResultBubble = null; }
     if (chatStatusBubble) { chatStatusBubble.remove(); chatStatusBubble = null; }
+    if (webmPreviewURL) { URL.revokeObjectURL(webmPreviewURL); webmPreviewURL = null; }
+    pendingWebmPreview = null;
+    chatPreviewVideo = null;
+    chatPreviewDownloadLink = null;
+    chatPreviewAnimationSelect = null;
+    chatPreviewSpeedSelect = null;
+    chatPreviewScale = null;
+  }
+  function attachWebmPreview(payload) {
+    if (!payload || !payload.blob) return;
+    pendingWebmPreview = payload;
+    if (!chatResultBubble) return;
+    if (!chatPreviewVideo) {
+      const panel = document.createElement('div');
+      panel.style.cssText = 'display:flex;flex-direction:column;gap:9px;width:100%;margin-top:12px;';
+      const controls = document.createElement('div');
+      controls.style.cssText = 'display:flex;align-items:center;gap:9px;flex-wrap:wrap;';
+      if (Array.isArray(payload.animationNames) && payload.animationNames.length > 1) {
+        const animationLabel = document.createElement('label');
+        animationLabel.textContent = 'Animation';
+        animationLabel.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;';
+        const select = document.createElement('select');
+        select.style.cssText = 'max-width:220px;background:#101012;color:#f3f1ee;border:1px solid #454047;border-radius:8px;padding:6px;';
+        for (const name of payload.animationNames) {
+          const option = document.createElement('option');
+          option.value = name;
+          option.textContent = name;
+          select.appendChild(option);
+        }
+        select.value = payload.selectedAnimation || payload.animationNames[0];
+        select.addEventListener('change', async () => {
+          const current = pendingWebmPreview;
+          if (!current || !current.files) return;
+          select.disabled = true;
+          message('Rendering WebM preview: ' + select.value + '…');
+          try {
+            const selectedAnimation = select.value;
+            const next = await renderSpineWebmPreview(current.files, selectedAnimation);
+            attachWebmPreview({
+              ...next,
+              files: current.files,
+              animationNames: current.animationNames,
+              selectedAnimation
+            });
+            message('ZIP ready. WebM preview ready: ' + selectedAnimation + '.');
+          } catch (error) {
+            message('ZIP ready. WebM preview failed: ' + String(error?.message || error).slice(0, 220));
+          } finally {
+            select.disabled = false;
+          }
+        });
+        animationLabel.appendChild(select);
+        controls.appendChild(animationLabel);
+        chatPreviewAnimationSelect = select;
+      }
+      const speedLabel = document.createElement('label');
+      speedLabel.textContent = 'Speed';
+      speedLabel.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;';
+      const speed = document.createElement('select');
+      speed.style.cssText = 'background:#101012;color:#f3f1ee;border:1px solid #454047;border-radius:8px;padding:6px;';
+      for (const rate of ['0.5', '0.75', '1', '1.25', '1.5', '2']) {
+        const option = document.createElement('option');
+        option.value = rate;
+        option.textContent = rate + '×';
+        speed.appendChild(option);
+      }
+      speed.value = '1';
+      speed.addEventListener('change', () => {
+        if (chatPreviewVideo) chatPreviewVideo.playbackRate = Number(speed.value);
+      });
+      speedLabel.appendChild(speed);
+      controls.appendChild(speedLabel);
+      chatPreviewSpeedSelect = speed;
+      const scaleLabel = document.createElement('label');
+      scaleLabel.textContent = 'Scale';
+      scaleLabel.style.cssText = 'display:flex;align-items:center;gap:6px;font-size:12px;';
+      const scale = document.createElement('input');
+      scale.type = 'range';
+      scale.min = '75';
+      scale.max = '150';
+      scale.step = '5';
+      scale.value = '100';
+      scale.setAttribute('aria-label', 'Preview scale');
+      scale.addEventListener('input', () => {
+        if (chatPreviewVideo) chatPreviewVideo.style.transform = 'scale(' + (Number(scale.value) / 100) + ')';
+      });
+      scaleLabel.appendChild(scale);
+      controls.appendChild(scaleLabel);
+      chatPreviewScale = scale;
+      const video = document.createElement('video');
+      video.controls = true;
+      video.loop = true;
+      video.muted = true;
+      video.autoplay = true;
+      video.playsInline = true;
+      video.preload = 'metadata';
+      video.style.cssText = 'display:block;width:100%;max-height:420px;object-fit:contain;background:#080808;border:1px solid #2c2c31;border-radius:12px;transform-origin:center;';
+      const link = document.createElement('a');
+      link.className = 'chat-result-link';
+      link.textContent = 'Download WebM preview';
+      link.style.cssText = 'display:inline-block;margin-top:2px;';
+      panel.appendChild(controls);
+      panel.appendChild(video);
+      panel.appendChild(link);
+      chatResultBubble.appendChild(panel);
+      chatPreviewVideo = video;
+      chatPreviewDownloadLink = link;
+    }
+    if (webmPreviewURL) URL.revokeObjectURL(webmPreviewURL);
+    webmPreviewURL = URL.createObjectURL(payload.blob);
+    chatPreviewVideo.src = webmPreviewURL;
+    chatPreviewVideo.style.aspectRatio = Math.max(1, Number(payload.width) || 16) + ' / ' +
+      Math.max(1, Number(payload.height) || 9);
+    chatPreviewVideo.playbackRate = chatPreviewSpeedSelect ? Number(chatPreviewSpeedSelect.value) : 1;
+    chatPreviewVideo.style.transform = 'scale(' +
+      (chatPreviewScale ? Number(chatPreviewScale.value) / 100 : 1) + ')';
+    if (chatPreviewDownloadLink) {
+      const safeName = String(payload.selectedAnimation || 'preview').replace(/[^a-z0-9._-]+/gi, '-');
+      chatPreviewDownloadLink.href = webmPreviewURL;
+      chatPreviewDownloadLink.download = 'spine-' + safeName + '-preview.webm';
+    }
+    if (chatPreviewAnimationSelect && payload.selectedAnimation)
+      chatPreviewAnimationSelect.value = payload.selectedAnimation;
+    const play = chatPreviewVideo.play();
+    if (play && typeof play.catch === 'function') play.catch(() => {});
   }
   function submitChatPrompt() {
     const value = chatPrompt?.value?.trim();
@@ -1017,6 +1347,7 @@
       link.setAttribute('download', chatDownload.getAttribute('download') || 'spine-project.zip');
       chatResultBubble.append(label, document.createTextNode(' '), link);
       chatHistory.appendChild(chatResultBubble);
+      if (pendingWebmPreview) attachWebmPreview(pendingWebmPreview);
     });
     observer.observe(chatDownload, { attributes: true, attributeFilter: ['href', 'hidden', 'download'] });
   }
