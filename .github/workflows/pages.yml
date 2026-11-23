@@ -1054,7 +1054,7 @@ jobs:
           import assert from 'node:assert/strict';
           import { writeFileSync, readFileSync } from 'node:fs';
           import { execFileSync } from 'node:child_process';
-          const endpoint='https://3spine-public.spine-animator-f8692224.workers.dev/api/build';
+          const endpoint='https://spine-generator.spine-animator-f8692224.workers.dev/api/build';
           const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAC0lEQVR4nGNgQAcAABIAAXfx+gAAAAAASUVORK5CYII=','base64');
           const image='data:image/png;base64,'+png.toString('base64');
           const layers=[
