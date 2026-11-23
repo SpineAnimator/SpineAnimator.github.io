@@ -497,8 +497,34 @@ jobs:
             },bytes.toString('base64'));
             assert.ok(parsed.width>0&&parsed.height>0,'PSD canvas dimensions must be valid');
             assert.ok(parsed.layers>0,'PSD must contain real layer records');
+            let plannerPayload=null,exportPayload=null;
+            await page.route('https://spine-plan-api.spine-animator-f8692224.workers.dev/api/plan-async',async route=>{
+              plannerPayload=JSON.parse(route.request().postData()||'{}');
+              await route.fulfill({status:202,contentType:'application/json',body:JSON.stringify({jobId:'00000000-0000-4000-8000-000000000001',status:'queued'})});
+            });
+            await page.route('https://spine-plan-api.spine-animator-f8692224.workers.dev/api/plan-status**',async route=>{
+              const nodes=(plannerPayload?.layers||[]).map(layer=>({id:layer.id,asset:layer.id,transform:{x:0,y:0,z:0,rotation:0,scaleX:1,scaleY:1,opacity:1,depth:0}}));
+              const scene={nodes,drawOrder:nodes.map(node=>node.id),clips:[{id:'contour-smoke',duration:1,tracks:nodes.length?[{target:nodes[0].id,property:'x',keys:[{time:0,value:0},{time:1,value:1}]}]:[]}]};
+              await route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({status:'complete',plan:{scene}})});
+            });
+            await page.route('https://spine-generator.spine-animator-f8692224.workers.dev/api/build',async route=>{
+              exportPayload=JSON.parse(route.request().postData()||'{}');
+              const zip=Buffer.alloc(24);zip.write('PK\\x03\\x04','binary');
+              await route.fulfill({status:200,contentType:'application/zip',body:zip});
+            });
+            await page.locator('#motion').fill('Subtle breathing and a gentle head turn; preserve the setup pose.');
+            const zipWait=page.waitForEvent('download');
+            await page.locator('#animate').click();
+            await page.waitForFunction(()=>['ZIP READY','PIPELINE FAILED'].includes(document.querySelector('#previewState')?.textContent),{timeout:60000});
+            const handoff=await page.evaluate(()=>document.querySelector('#previewState')?.textContent);
+            assert.equal(handoff,'ZIP READY','PNG masks must flow through the animation planner and Spine exporter');
+            const zipDownload=await zipWait,zipPath=await zipDownload.path(),zipBytes=await fs.readFile(zipPath);
+            assert.equal(zipBytes.subarray(0,4).toString('binary'),'PK\\x03\\x04','Spine ZIP handoff must download');
+            assert.ok(plannerPayload?.layers?.length>0,'AI planner must receive transparent PNG masks');
+            assert.ok(exportPayload?.layers?.length>0,'Spine generator must receive the same mask layers');
+            assert.ok(exportPayload?.scene?.clips?.length>0,'Spine generator must receive the planned animation scene');
             assert.deepEqual(errors,[],'No browser runtime errors are allowed');
-            console.log('SPINE_SCRIPTS_CONTOUR_E2E_PASS '+JSON.stringify({state,psd:{width:parsed.width,height:parsed.height,layers:parsed.layers}}));
+            console.log('SPINE_SCRIPTS_CONTOUR_E2E_PASS '+JSON.stringify({state,psd:{width:parsed.width,height:parsed.height,layers:parsed.layers},handoff:{plannerLayers:plannerPayload.layers.length,exportLayers:exportPayload.layers.length,clips:exportPayload.scene.clips.length}}));
           }finally{await browser.close();}
           NODE
           node --check "$RUNNER_TEMP/spine-scripts-contour/contour.mjs"
