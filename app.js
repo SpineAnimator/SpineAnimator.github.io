@@ -902,12 +902,17 @@
     const animationName = animationNames.includes(requestedAnimation) ? requestedAnimation : animationNames[0];
     if (!animationName) throw Error('Spine project contains no animation to preview');
     const atlasText = decoder.decode(atlasBytes);
-    const pageNames = atlasText.split(/\r?\n/)
-      .filter(line => line && !/^\s/.test(line) && /\.(png|jpe?g|webp)$/i.test(line.trim()))
-      .map(line => line.trim());
+    const atlasLines = atlasText.split(/\r?\n/);
+    const pageNames = [];
+    for (let i = 0; i < atlasLines.length; i++) {
+      const line = atlasLines[i];
+      if (!line || /^\s/.test(line) || !/\.(png|jpe?g|webp)$/i.test(line.trim())) continue;
+      const nextMetadata = atlasLines.slice(i + 1).find(candidate => candidate.trim());
+      if (nextMetadata && /^\s*(size|format|filter|repeat):/i.test(nextMetadata.trim()))
+        pageNames.push(line.trim());
+    }
     const imageNames = [...files.keys()].filter(name => /\.(png|jpe?g|webp)$/i.test(name)).sort();
-    const pages = pageNames.length ? pageNames : imageNames;
-    if (!pages.length) throw Error('Spine atlas has no texture pages');
+    if (!pageNames.length) throw Error('Spine atlas has no resolvable texture page references');
     const temporaryUrls = [];
     function objectUrl(bytes, type) {
       const url = URL.createObjectURL(new Blob([bytes], { type }));
@@ -920,28 +925,46 @@
       const matches = imageNames.filter(file => file === basename || file.endsWith('/' + basename));
       return matches.length === 1 ? matches[0] : '';
     }
-    const textureUrls = pages.map(page => {
-      if (page.split('/').includes('..')) throw Error('Spine atlas contains an unsafe texture path');
+    const pageAssets = pageNames.map(page => {
+      if (page.split(/[\\/]/).includes('..')) throw Error('Spine atlas contains an unsafe texture path');
       const file = findPage(page);
       if (!file) throw Error('Spine atlas texture page is missing: ' + page);
       const extension = file.split('.').pop().toLowerCase();
       const mime = extension === 'jpg' || extension === 'jpeg' ? 'image/jpeg' :
         extension === 'webp' ? 'image/webp' : 'image/png';
-      return objectUrl(files.get(file), mime);
+      return { page, file, mime };
     });
-    let pageIndex = 0;
-    const rewrittenAtlasText = atlasText.split(/\r?\n/).map(line => {
-      if (line && !/^\s/.test(line) && /\.(png|jpe?g|webp)$/i.test(line.trim())) {
-        const url = textureUrls[pageIndex++];
-        if (!url) throw Error('Spine atlas texture mapping is incomplete');
-        return url;
-      }
-      return line;
-    }).join('\n');
-    if (pageIndex !== textureUrls.length)
-      throw Error('Spine atlas texture mapping does not match its page count');
     const skeletonUrl = objectUrl(skeletonBytes, 'application/json');
-    const atlasUrl = objectUrl(new TextEncoder().encode(rewrittenAtlasText), 'text/plain');
+    const atlasUrl = objectUrl(atlasBytes, 'text/plain');
+    const rawDataURIs = {
+      'skeleton.json': skeletonUrl,
+      'skeleton.atlas': atlasUrl
+    };
+    const basenameCounts = new Map();
+    const stemCounts = new Map();
+    for (const asset of pageAssets) {
+      const basename = asset.file.split('/').pop();
+      const stem = basename.replace(/\.(png|jpe?g|webp)$/i, '');
+      basenameCounts.set(basename, (basenameCounts.get(basename) || 0) + 1);
+      stemCounts.set(stem, (stemCounts.get(stem) || 0) + 1);
+    }
+    for (const asset of pageAssets) {
+      const url = objectUrl(files.get(asset.file), asset.mime);
+      rawDataURIs[asset.page] = url;
+      rawDataURIs['./' + asset.page] = url;
+      const basename = asset.file.split('/').pop();
+      const stem = basename.replace(/\.(png|jpe?g|webp)$/i, '');
+      if (basenameCounts.get(basename) === 1) {
+        rawDataURIs[basename] = url;
+        rawDataURIs['./' + basename] = url;
+      }
+      if (stemCounts.get(stem) === 1) {
+        rawDataURIs[stem] = url;
+        rawDataURIs['./' + stem] = url;
+        rawDataURIs['images/' + stem] = url;
+        rawDataURIs['./images/' + stem] = url;
+      }
+    }
     const container = document.createElement('div');
     container.id = 'sa-spine-render-' + Date.now() + '-' + Math.random().toString(36).slice(2);
     container.style.cssText = 'position:fixed;left:-10000px;top:0;width:640px;height:360px;overflow:hidden;pointer-events:none;z-index:-1;';
@@ -954,9 +977,9 @@
         const timeout = setTimeout(() => reject(Error('Spine Player did not finish loading within 45 seconds')), 45000);
         try {
           new window.spine.SpinePlayer(container.id, {
-            skeleton: skeletonUrl,
-            atlas: atlasUrl,
-            textures: textureUrls,
+            skeleton: 'skeleton.json',
+            atlas: 'skeleton.atlas',
+            rawDataURIs,
             animation: animationName,
             showControls: false,
             premultipliedAlpha: false,
