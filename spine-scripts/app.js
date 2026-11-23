@@ -171,19 +171,22 @@
     for(const row of rows){
       if(row.type==='group'){
         const el=document.createElement('div');el.className='layer-item layer-group';el.style.paddingLeft=(8+row.depth*14)+'px';
-        const icon=document.createElement('span');icon.className='layer-icon';icon.textContent='▾';
+        const icon=document.createElement('span');icon.className='layer-icon';icon.textContent=row.visible?'▾':'▹';
         const name=document.createElement('span');name.className='layer-name';name.textContent=row.name;
         el.append(icon,name);root.append(el);continue;
       }
       const item=row.item,el=document.createElement('label');el.className='layer-item';el.style.paddingLeft=(7+row.depth*14)+'px';
-      const cb=document.createElement('input');cb.type='checkbox';cb.checked=item.selected;cb.dataset.layerId=item.id;
-      cb.addEventListener('change',()=>{item.selected=cb.checked;state.selected=new Set(state.layers.filter(x=>x.selected).map(x=>x.id));$('animate').disabled=!state.prepared||($('selectionOnly').checked&&state.selected.size===0);});
-      const icon=document.createElement('span');icon.className='layer-icon';icon.textContent='▧';
-      const name=document.createElement('span');name.className='layer-name';name.textContent=item.name;
-      const dims=document.createElement('span');dims.className='layer-dims';dims.textContent=item.bounds.width+'×'+item.bounds.height;
+      const cb=document.createElement('input');cb.type='checkbox';cb.checked=item.selected;cb.disabled=!item.visible;
+      cb.title=item.visible?'Include this source layer in animation':'Hidden in source PSD; retained in source-layer map but not animated';
+      cb.dataset.layerId=item.id;
+      cb.addEventListener('change',()=>{item.selected=cb.checked;state.selected=new Set(state.layers.filter(x=>x.selected&&x.visible).map(x=>x.id));$('animate').disabled=!state.prepared||($('selectionOnly').checked&&state.selected.size===0);});
+      const icon=document.createElement('span');icon.className='layer-icon';icon.textContent=item.visible?'▧':'◌';if(!item.visible)icon.title='Hidden in source PSD';
+      const name=document.createElement('span');name.className='layer-name';name.textContent=item.sourceName;
+      const dims=document.createElement('span');dims.className='layer-dims';dims.textContent=item.bounds.width+'×'+item.bounds.height+(item.visible?'':' · hidden');
       el.append(cb,icon,name,dims);root.append(el);
     }
-    $('layerCount').textContent=state.layers.length+' raster layers';
+    const hidden=state.layers.filter(x=>!x.visible).length;
+    $('layerCount').textContent=state.layers.length+' raster · '+hidden+' hidden retained';
   }
   function selectFile(file){
     if(!file)return;
@@ -204,7 +207,7 @@
 
   // PNG-to-Spine is deliberately fail-closed until semantic anatomy and mask QA are integrated.
   function downloadLayeredPsd(){
-    throw Error('PNG-to-PSD export is disabled until the anatomical decomposition pipeline passes its quality gates.');
+    throw Error('Photoshop PSD reconstruction is not implemented in this browser pipeline. No PSD export is created.');
   }
 
   async function prepare(){
@@ -224,17 +227,18 @@
         status('agentStatus','Blocked before animation. Connect A2 semantic decomposition, A3 rig feasibility and A5 independent mask/art review in the SA operation graph.','error');
       }else{
         const buffer=await state.file.arrayBuffer();const parsed=parsePsd(buffer);
-        state.psd=parsed;state.layers=parsed.layers;state.selected=new Set(parsed.layers.map(x=>x.id));
+        state.psd=parsed;state.layers=parsed.layers;state.selected=new Set(parsed.layers.filter(x=>x.visible).map(x=>x.id));
         drawPreview(parsed.composite);renderLayers(parsed.rows);
-        if(parsed.unsupported.length){$('layerWarning').textContent='Unsupported Photoshop operations were detected. They are not silently discarded: '+parsed.unsupported.slice(0,8).join(' · ');$('layerWarning').classList.add('show');}
+        if(parsed.unsupported.length){$('layerWarning').textContent='Unsupported PSD features or source-composite mismatch were detected. They are not silently discarded: '+parsed.unsupported.slice(0,8).join(' · ');$('layerWarning').classList.add('show');}
         state.prepared=parsed.unsupported.length===0;$('animate').disabled=!state.prepared;
-        $('previewState').textContent=state.prepared?'PSD PARSED':'PSD NEEDS REVIEW';
+        $('previewState').textContent=state.prepared?'BROWSER PARSED':'SOURCE NEEDS REVIEW';
         if(state.prepared){
-          status('leftStatus','PSD layer tree parsed. '+parsed.layers.length+' raster layers are available.','success');
-          status('agentStatus','Source ready. Describe the motion and send the selected source layers to the animation agents.');
+          const hidden=parsed.layers.filter(x=>!x.visible).length;
+          status('leftStatus','Browser parser reconstructed '+parsed.layers.length+' raster layers; '+hidden+' hidden layers remain in the source map. Composite audit: '+parsed.compositeAudit.status+'.','success');
+          status('agentStatus','Source metadata preserves original names, duplicate names, visibility and bounds. This remains an independent browser pipeline, not Photoshop parity.');
         }else{
-          status('leftStatus','PSD parsed, but unsupported Photoshop operations must be resolved before export.','error');
-          status('agentStatus','AI export is locked until unsupported Photoshop operations are mapped.','error');
+          status('leftStatus','Browser parser found unsupported PSD features or a composite mismatch. Export is locked.','error');
+          status('agentStatus','Resolve unsupported features and achieve an exact source-composite audit before AI export.','error');
         }
       }
     }catch(error){status('leftStatus',error.message||String(error),'error');$('previewState').textContent='PREPARE FAILED';}
@@ -260,34 +264,41 @@
   async function animate(){
     if(!state.prepared||state.busy)return;
     const description=$('motion').value.trim();if(!description){status('agentStatus','Describe the motion before starting the animation agent.','error');return;}
-    const selected=$('selectionOnly').checked?state.layers.filter(x=>x.selected):state.layers;
-    if(!selected.length){status('agentStatus','Select at least one source layer.','error');return;}
+    const selectionOnly=$('selectionOnly').checked;
+    const selected=state.layers.filter(x=>x.visible&&(!selectionOnly||x.selected));
+    if(!selected.length){status('agentStatus','Select at least one visible source layer. Hidden layers remain preserved in source metadata but are not animated by default.','error');return;}
     if(!$('writeJson').checked||$('writeTemplate').checked){status('agentStatus','The connected server exporter currently requires Spine JSON and does not yet support template-data export. Keep Spine JSON enabled and Template data disabled.','error');return;}
-    if((state.psd.unsupported||[]).length){status('agentStatus','Resolve unsupported Photoshop operations before export. This source is fail-closed.','error');return;}
+    if((state.psd.unsupported||[]).length){status('agentStatus','Resolve unsupported PSD features before export. This source is fail-closed.','error');return;}
     state.busy=true;$('animate').disabled=true;$('previewState').textContent='AI + SPINE EXPORT';
-    $('processingTitle').textContent='AI ANIMATION';$('processingSub').textContent='Sending source artwork to the animation agent network.';$('processingOverlay').classList.add('show');
+    $('processingTitle').textContent='AI ANIMATION';$('processingSub').textContent='Sending source artwork and source-layer metadata to the animation agents.';$('processingOverlay').classList.add('show');
     try{
       const sceneCanvas=document.createElement('canvas');sceneCanvas.width=state.psd.width;sceneCanvas.height=state.psd.height;
       const sceneContext=sceneCanvas.getContext('2d');
       for(const layer of selected.slice().reverse())sceneContext.drawImage(layer.canvas,layer.bounds.x,layer.bounds.y);
       const composite=sceneCanvas.toDataURL('image/png');
-      const layers=selected.map(x=>({id:x.id,image:x.canvas.toDataURL('image/png'),bounds:x.bounds}));
-      const body=JSON.stringify({image:composite,canvas:{width:state.psd.width,height:state.psd.height},layers,description,
-        instructions:state.kind==='png'?'The source is one flattened PNG partitioned into disjoint AI-generated pixel masks. There is no original layer order or hidden anatomy to infer. Preserve the supplied region order and exact source composite at frame zero; treat mask regions as visual cutouts, not anatomical labels. Keep every supplied source mask exactly once. Create genuinely animated Spine scene clips with different numeric poses at distinct timestamps. Do not emit static fallback motion, empty clips, duplicate keys, or invented source layers.':'Preserve original Photoshop draw order and every source pixel. Keep frame-zero setup pose identical. Create genuinely animated Spine scene clips with different numeric poses at distinct timestamps. Do not emit static fallback motion, empty clips, duplicate keys, or invented source layers. Preserve all supplied source layer IDs and bounds.'});
+      const layers=selected.map(x=>({id:x.id,sourceName:x.sourceName,sourceIndex:x.sourceIndex,visible:x.visible,
+        opacity:x.opacity,depth:x.depth,groupPath:x.groupPath,image:x.canvas.toDataURL('image/png'),bounds:x.bounds}));
+      const sourceLayers=state.psd.sourceLayers.map(x=>({...x,selected:!!state.layers.find(layer=>layer.id===x.id)?.selected}));
+      const sourceFileName=state.file.name;
+      const compositeAudit=state.psd.compositeAudit;
+      const instructions=state.kind==='png'
+        ?'The source is one flattened PNG partitioned into disjoint AI-generated pixel masks. There is no original layer order or hidden anatomy to infer. Preserve the supplied region order and exact source composite at frame zero; treat mask regions as visual cutouts, not anatomical labels. Keep every supplied source mask exactly once. Create genuinely animated Spine scene clips with different numeric poses at distinct timestamps. Do not emit static fallback motion, empty clips, duplicate keys, or invented source layers.'
+        :'Preserve sourceName exactly, including duplicate names, and preserve sourceIndex, sourceRecordId, visibility, opacity and original bounds. The id field is a unique technical identifier only; never rename, merge or invent source layers. Preserve visible draw order and the exact frame-zero composite. Hidden layers remain in source metadata and are excluded from animation unless explicitly selected by a future supported workflow. Create genuinely animated Spine scene clips with different numeric poses at distinct timestamps. Do not emit static fallback motion, empty clips, duplicate keys, or invented source layers.';
+      const body=JSON.stringify({image:composite,canvas:{width:state.psd.width,height:state.psd.height},layers,sourceLayers,sourceFileName,compositeAudit,description,instructions});
       if(body.length>19*1024*1024)throw Error('AI request exceeds the planner 19 MiB limit. Reduce source size or layer count.');
       status('agentStatus','Queued with the AI animation planner…');
       const plan=await requestPlan(body);
       if(!plan?.scene||!Array.isArray(plan.scene.clips)||!plan.scene.clips.length)throw Error('AI planner returned no valid animation clips.');
-      const exportBody=JSON.stringify({canvas:{width:state.psd.width,height:state.psd.height},scene:plan.scene,layers});
+      const exportBody=JSON.stringify({canvas:{width:state.psd.width,height:state.psd.height},scene:plan.scene,layers,sourceLayers,sourceFileName,compositeAudit});
       if(exportBody.length>19*1024*1024)throw Error('Spine export request exceeds the 19 MiB limit.');
-      status('agentStatus','AI plan ready. Sending scene and source layers to the Spine ZIP generator…');
+      status('agentStatus','AI plan ready. Sending scene, source layers and exact-name map to the Spine ZIP generator…');
       const result=await fetch(API.exporter+'/api/build',{method:'POST',headers:{'content-type':'application/json'},body:exportBody});
       if(!result.ok){const err=await result.json().catch(()=>({}));throw Error(err?.error?.message||err?.error||('Spine generator HTTP '+result.status));}
       const zip=await result.arrayBuffer();if(zip.byteLength<22||new Uint8Array(zip,0,4).some((v,i)=>v!==[80,75,3,4][i]))throw Error('Spine generator returned an invalid ZIP.');
       if(state.objectUrl)URL.revokeObjectURL(state.objectUrl);
       state.objectUrl=URL.createObjectURL(new Blob([zip],{type:'application/zip'}));
       const link=document.createElement('a');link.href=state.objectUrl;link.download=state.file.name.replace(/\.(psd|psb|png)$/i,'')+'_spine43.zip';link.click();
-      $('previewState').textContent='ZIP READY';status('agentStatus','Spine ZIP created and downloaded. Verify the result in Spine Editor 4.3.26 before production.','success');
+      $('previewState').textContent='ZIP GENERATED';status('agentStatus','Spine ZIP generated and downloaded. Original source names are retained in the source-layer map. Not release-ready: import, render and review every clip in Spine Editor 4.3.26 before production.','success');
     }catch(error){status('agentStatus',error.message||String(error),'error');$('previewState').textContent='PIPELINE FAILED';}
     finally{$('processingOverlay').classList.remove('show');state.busy=false;$('animate').disabled=!state.prepared||($('selectionOnly').checked&&state.selected.size===0);}
   }
@@ -300,14 +311,14 @@
     $('previewCanvas').hidden=true;$('previewEmpty').hidden=false;$('previewDimensions').textContent='No image';$('previewName').textContent='No source loaded';$('previewState').textContent='IDLE';
     $('layerList').innerHTML='<div class="preview-empty">Your PSD layer structure will appear here.</div>';$('layerCount').textContent='0 layers';$('layerWarning').classList.remove('show');
     $('prepare').disabled=true;$('reset').disabled=true;$('animate').disabled=true;$('downloadPsd').disabled=true;$('motion').value='';
-    status('leftStatus','Waiting for a source file.');status('agentStatus','PNG requires approved anatomical decomposition; PSD source layers can be inspected.');
+    status('leftStatus','Waiting for a source file.');status('agentStatus','Browser-side ag-psd parser ready. This pipeline is separate from Photoshop and does not certify Photoshop pixel parity.');
   }
   $('sourceFile').addEventListener('change',e=>selectFile(e.target.files?.[0]));
   $('dropzone').addEventListener('dragover',e=>{e.preventDefault();$('dropzone').classList.add('drag');});
   $('dropzone').addEventListener('dragleave',()=> $('dropzone').classList.remove('drag'));
   $('dropzone').addEventListener('drop',e=>{e.preventDefault();$('dropzone').classList.remove('drag');selectFile(e.dataTransfer.files?.[0]);});
   $('prepare').addEventListener('click',prepare);$('animate').addEventListener('click',animate);$('reset').addEventListener('click',reset);$('downloadPsd').addEventListener('click',()=>{try{downloadLayeredPsd();}catch(error){status('leftStatus',error.message||String(error),'error');}});
-  $('selectAll').addEventListener('click',()=>{state.layers.forEach(x=>x.selected=true);state.selected=new Set(state.layers.map(x=>x.id));$('layerList').querySelectorAll('input[type=checkbox]').forEach(x=>x.checked=true);$('animate').disabled=!state.prepared;});
+  $('selectAll').addEventListener('click',()=>{state.layers.forEach(x=>x.selected=x.visible);state.selected=new Set(state.layers.filter(x=>x.selected).map(x=>x.id));$('layerList').querySelectorAll('input[type=checkbox]').forEach(x=>{x.checked=x.dataset.layerId?!!state.layers.find(l=>l.id===x.dataset.layerId)?.selected:false;});$('animate').disabled=!state.prepared||($('selectionOnly').checked&&state.selected.size===0);});
   $('scale').addEventListener('input',()=>{$('scaleValue').textContent=$('scale').value+'%';if(state.file)state.prepared=false;$('animate').disabled=true;});
   $('padding').addEventListener('input',()=>{$('paddingValue').textContent=$('padding').value+' px';if(state.file)state.prepared=false;$('animate').disabled=true;});
   ['ignoreHidden','ignoreBackground','trimWhitespace','selectionOnly'].forEach(id=>$(id).addEventListener('change',()=>{if(state.file){state.prepared=false;$('animate').disabled=true;status('leftStatus','Settings changed. Prepare the source again to apply them.');}}));
