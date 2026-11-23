@@ -1044,6 +1044,63 @@ jobs:
           } finally {await browser.close();}
           NODE
           node "$RUNNER_TEMP/mask-smoke/smoke.mjs"
+      - name: One-shot duplicate PSD source-layer name preservation diagnostic
+        if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[source-layer-map-e2e]') }}
+        timeout-minutes: 2
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          import assert from 'node:assert/strict';
+          import { writeFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const endpoint='https://3spine-public.spine-animator-f8692224.workers.dev/api/build';
+          const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAC0lEQVR4nGNgQAcAABIAAXfx+gAAAAAASUVORK5CYII=','base64');
+          const image='data:image/png;base64,'+png.toString('base64');
+          const layers=[
+            {id:'orn',sourceName:'orn',sourceIndex:0,image,bounds:{x:0,y:0,width:2,height:2}},
+            {id:'orn_1',sourceName:'orn',sourceIndex:1,image,bounds:{x:0,y:0,width:2,height:2}}
+          ];
+          const sourceLayers=layers.map(({id,sourceName,sourceIndex,bounds})=>({
+            id,sourceName,sourceIndex,kind:'raster',visible:true,opacity:255,bounds
+          }));
+          const transform={x:0,y:0,z:0,rotation:0,scaleX:1,scaleY:1,opacity:1,depth:0};
+          const scene={
+            nodes:[
+              {id:'orn-node-a',asset:'orn',transform:{...transform}},
+              {id:'orn-node-b',asset:'orn_1',transform:{...transform}}
+            ],
+            drawOrder:['orn-node-a','orn-node-b'],
+            clips:[{id:'orn-idle',duration:1,loop:true,tracks:[
+              {target:'orn-node-a',property:'x',keys:[{time:0,value:0},{time:1,value:1}]},
+              {target:'orn-node-b',property:'x',keys:[{time:0,value:0},{time:1,value:-1}]}
+            ]}],
+            camera:{mode:'orthographic',x:0,y:0,z:0,focalLength:1000,near:1,parallax:0},
+            constraints:[],emitters:[],bindings:[]
+          };
+          const response=await fetch(endpoint,{
+            method:'POST',
+            headers:{'content-type':'application/json',origin:'https://spineanimator.github.io'},
+            body:JSON.stringify({canvas:{width:2,height:2},scene,layers,sourceLayers,sourceFileName:'duplicate-orn-fixture.psd'}),
+            signal:AbortSignal.timeout(60000)
+          });
+          const zip=Buffer.from(await response.arrayBuffer());
+          assert.equal(response.status,200,'duplicate-name build failed: '+zip.toString('utf8').slice(0,500));
+          assert.deepEqual([...zip.subarray(0,4)],[0x50,0x4b,0x03,0x04]);
+          const zipPath=process.env.RUNNER_TEMP+'/duplicate-orn-layer-map.zip';
+          writeFileSync(zipPath,zip);
+          execFileSync('unzip',['-tq',zipPath],{stdio:'pipe'});
+          const manifest=JSON.parse(execFileSync('unzip',['-p',zipPath,'manifest.json'],{encoding:'utf8'}));
+          const map=JSON.parse(execFileSync('unzip',['-p',zipPath,'source-layer-map.json'],{encoding:'utf8'}));
+          assert.equal(manifest.sourceLayerNamesPreserved,true);
+          assert.equal(map.sourceLayers.length,2);
+          assert.deepEqual(map.sourceLayers.map(x=>x.sourceName),['orn','orn']);
+          assert.deepEqual(map.sourceLayers.map(x=>x.id),['orn','orn_1']);
+          assert.deepEqual(map.sourceLayers.map(x=>x.sourceIndex),[0,1]);
+          console.log('DUPLICATE_SOURCE_LAYER_NAMES_PRESERVED_PASS',JSON.stringify({
+            bytes:zip.length,ids:map.sourceLayers.map(x=>x.id),names:map.sourceLayers.map(x=>x.sourceName)
+          }));
+          NODE
       - name: Browser E2E — live PSD link, real PSD file upload, responsive composer
         shell: bash
         run: |
@@ -1884,63 +1941,6 @@ jobs:
           const order=(scene.drawOrder||[]).map(id=>scene.nodes.find(n=>n.id===id)).filter(n=>n?.asset).map(n=>n.asset);
           if(order.join('|')!==layers.map(x=>x.id).join('|'))throw new Error('Planner changed the eight-layer source order');
           console.log('SYNTHETIC_8LAYER_PLAN_PASS',JSON.stringify({layers:8,clips:scene.clips.length,drawOrderPreserved:true,requestBytes:result.requestBytes}));
-          NODE
-      - name: One-shot duplicate PSD source-layer name preservation diagnostic
-        if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[source-layer-map-e2e]') }}
-        timeout-minutes: 2
-        shell: bash
-        run: |
-          set -euo pipefail
-          node --input-type=module <<'NODE'
-          import assert from 'node:assert/strict';
-          import { writeFileSync } from 'node:fs';
-          import { execFileSync } from 'node:child_process';
-          const endpoint='https://3spine-public.spine-animator-f8692224.workers.dev/api/build';
-          const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAC0lEQVR4nGNgQAcAABIAAXfx+gAAAAAASUVORK5CYII=','base64');
-          const image='data:image/png;base64,'+png.toString('base64');
-          const layers=[
-            {id:'orn',sourceName:'orn',sourceIndex:0,image,bounds:{x:0,y:0,width:2,height:2}},
-            {id:'orn_1',sourceName:'orn',sourceIndex:1,image,bounds:{x:0,y:0,width:2,height:2}}
-          ];
-          const sourceLayers=layers.map(({id,sourceName,sourceIndex,bounds})=>({
-            id,sourceName,sourceIndex,kind:'raster',visible:true,opacity:255,bounds
-          }));
-          const transform={x:0,y:0,z:0,rotation:0,scaleX:1,scaleY:1,opacity:1,depth:0};
-          const scene={
-            nodes:[
-              {id:'orn-node-a',asset:'orn',transform:{...transform}},
-              {id:'orn-node-b',asset:'orn_1',transform:{...transform}}
-            ],
-            drawOrder:['orn-node-a','orn-node-b'],
-            clips:[{id:'orn-idle',duration:1,loop:true,tracks:[
-              {target:'orn-node-a',property:'x',keys:[{time:0,value:0},{time:1,value:1}]},
-              {target:'orn-node-b',property:'x',keys:[{time:0,value:0},{time:1,value:-1}]}
-            ]}],
-            camera:{mode:'orthographic',x:0,y:0,z:0,focalLength:1000,near:1,parallax:0},
-            constraints:[],emitters:[],bindings:[]
-          };
-          const response=await fetch(endpoint,{
-            method:'POST',
-            headers:{'content-type':'application/json',origin:'https://spineanimator.github.io'},
-            body:JSON.stringify({canvas:{width:2,height:2},scene,layers,sourceLayers,sourceFileName:'duplicate-orn-fixture.psd'}),
-            signal:AbortSignal.timeout(60000)
-          });
-          const zip=Buffer.from(await response.arrayBuffer());
-          assert.equal(response.status,200,'duplicate-name build failed: '+zip.toString('utf8').slice(0,500));
-          assert.deepEqual([...zip.subarray(0,4)],[0x50,0x4b,0x03,0x04]);
-          const zipPath=process.env.RUNNER_TEMP+'/duplicate-orn-layer-map.zip';
-          writeFileSync(zipPath,zip);
-          execFileSync('unzip',['-tq',zipPath],{stdio:'pipe'});
-          const manifest=JSON.parse(execFileSync('unzip',['-p',zipPath,'manifest.json'],{encoding:'utf8'}));
-          const map=JSON.parse(execFileSync('unzip',['-p',zipPath,'source-layer-map.json'],{encoding:'utf8'}));
-          assert.equal(manifest.sourceLayerNamesPreserved,true);
-          assert.equal(map.sourceLayers.length,2);
-          assert.deepEqual(map.sourceLayers.map(x=>x.sourceName),['orn','orn']);
-          assert.deepEqual(map.sourceLayers.map(x=>x.id),['orn','orn_1']);
-          assert.deepEqual(map.sourceLayers.map(x=>x.sourceIndex),[0,1]);
-          console.log('DUPLICATE_SOURCE_LAYER_NAMES_PRESERVED_PASS',JSON.stringify({
-            bytes:zip.length,ids:map.sourceLayers.map(x=>x.id),names:map.sourceLayers.map(x=>x.sourceName)
-          }));
           NODE
       - name: Verify cloud animation API preflights
         shell: bash
