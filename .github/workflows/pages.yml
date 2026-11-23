@@ -123,7 +123,7 @@ jobs:
               const atlas='images/smoke-layer.png\nsize: 2, 2\nformat: RGBA8888\nfilter: Linear, Linear\nrepeat: none\npma: false\nsmoke-layer\n  bounds: 0, 0, 2, 2\n  offsets: 0, 0, 2, 2\n  rotate: false\n  index: -1\n';
               const manifest=JSON.stringify({version:'1.4.8',backend:'2spine-cloud-executor',spine:'4.3.26',
                 layerCount:1,clipCount:1,validation:{setupPreserved:true,drawOrderPreserved:true,frameZeroPreserved:true},
-                renderEvidence:{status:'not-rendered',frameCount:0},artisticApproval:'pending',releaseReady:false,nativeSpineEditorFile:false});
+                renderEvidence:{status:'not-rendered',frameCount:0},artisticApproval:'pending',releaseReady:false,nativeSpineEditorFile:false,sceneBake:{keyCount:0}});
               const zip=zipStored({'skeleton.json':skeleton,'skeleton.atlas':atlas,'manifest.json':manifest,'images/smoke-layer.png':png});
               const bytes=body!==null?new TextEncoder().encode(body).buffer:
                 zip.buffer.slice(zip.byteOffset,zip.byteOffset+zip.byteLength);
