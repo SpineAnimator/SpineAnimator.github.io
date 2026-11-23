@@ -983,15 +983,23 @@
       const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
       if (gl && typeof gl.readPixels === 'function') {
         try {
-          const width = Math.min(48, gl.drawingBufferWidth || canvas.width);
-          const height = Math.min(48, gl.drawingBufferHeight || canvas.height);
-          const pixels = new Uint8Array(width * height * 4);
-          gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+          const bufferWidth = gl.drawingBufferWidth || canvas.width;
+          const bufferHeight = gl.drawingBufferHeight || canvas.height;
+          const width = Math.min(48, bufferWidth);
+          const height = Math.min(48, bufferHeight);
           let visible = false;
-          for (let i = 0; i < pixels.length; i += 4) {
-            if (pixels[i + 3] > 0 && (pixels[i] > 0 || pixels[i + 1] > 0 || pixels[i + 2] > 0)) {
-              visible = true;
-              break;
+          for (let gy = 0; gy < 3 && !visible; gy++) {
+            for (let gx = 0; gx < 3 && !visible; gx++) {
+              const x = Math.max(0, Math.round((bufferWidth - width) * gx / 2));
+              const y = Math.max(0, Math.round((bufferHeight - height) * gy / 2));
+              const pixels = new Uint8Array(width * height * 4);
+              gl.readPixels(x, y, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+              for (let i = 0; i < pixels.length; i += 4) {
+                if (pixels[i + 3] > 0 && (pixels[i] > 0 || pixels[i + 1] > 0 || pixels[i + 2] > 0)) {
+                  visible = true;
+                  break;
+                }
+              }
             }
           }
           if (!visible) throw Error('Spine runtime rendered a blank frame');
