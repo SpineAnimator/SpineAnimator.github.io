@@ -94,7 +94,11 @@
     walk(psd);
     if(!flat.length)throw Error('No supported visible raster layers found.');
     if(flat.length>250)throw Error('This web pipeline currently accepts up to 250 raster layers.');
-    return{width:Math.round(psd.width*scale),height:Math.round(psd.height*scale),originalWidth:psd.width,originalHeight:psd.height,composite,layers:flat,rows,unsupported};
+    const outWidth=Math.round(psd.width*scale),outHeight=Math.round(psd.height*scale);
+    const rendered=document.createElement('canvas');rendered.width=outWidth;rendered.height=outHeight;
+    const renderContext=rendered.getContext('2d');
+    for(const layer of flat.slice().reverse())renderContext.drawImage(layer.canvas,layer.bounds.x,layer.bounds.y);
+    return{width:outWidth,height:outHeight,originalWidth:psd.width,originalHeight:psd.height,composite:rendered,layers:flat,rows,unsupported};
   }
   function drawPreview(canvas){
     const target=$('previewCanvas'),area=$('previewArea');
@@ -115,7 +119,7 @@
       }
       const item=row.item,el=document.createElement('label');el.className='layer-item';el.style.paddingLeft=(7+row.depth*14)+'px';
       const cb=document.createElement('input');cb.type='checkbox';cb.checked=item.selected;cb.dataset.layerId=item.id;
-      cb.addEventListener('change',()=>{item.selected=cb.checked;state.selected=new Set(state.layers.filter(x=>x.selected).map(x=>x.id));$('animate').disabled=!state.prepared||state.selected.size===0;});
+      cb.addEventListener('change',()=>{item.selected=cb.checked;state.selected=new Set(state.layers.filter(x=>x.selected).map(x=>x.id));$('animate').disabled=!state.prepared||($('selectionOnly').checked&&state.selected.size===0);});
       const icon=document.createElement('span');icon.className='layer-icon';icon.textContent='▧';
       const name=document.createElement('span');name.className='layer-name';name.textContent=item.name;
       const dims=document.createElement('span');dims.className='layer-dims';dims.textContent=item.bounds.width+'×'+item.bounds.height;
@@ -170,7 +174,7 @@
         status('agentStatus','Source ready. Describe the motion and send the selected source layers to the animation agents.');
       }
     }catch(error){status('leftStatus',error.message||String(error),'error');$('previewState').textContent='PREPARE FAILED';}
-    finally{setBusy(false);$('animate').disabled=!state.prepared||state.selected.size===0;}
+    finally{setBusy(false);$('animate').disabled=!state.prepared||($('selectionOnly').checked&&state.selected.size===0);}
   }
   async function requestPlan(body){
     const id=crypto.randomUUID();
@@ -192,12 +196,17 @@
   async function animate(){
     if(!state.prepared||state.busy)return;
     const description=$('motion').value.trim();if(!description){status('agentStatus','Describe the motion before starting the animation agent.','error');return;}
-    const selected=state.layers.filter(x=>x.selected);if(!selected.length){status('agentStatus','Select at least one source layer.','error');return;}
+    const selected=$('selectionOnly').checked?state.layers.filter(x=>x.selected):state.layers;
+    if(!selected.length){status('agentStatus','Select at least one source layer.','error');return;}
+    if(!$('writeJson').checked||$('writeTemplate').checked){status('agentStatus','The connected server exporter currently requires Spine JSON and does not yet support template-data export. Keep Spine JSON enabled and Template data disabled.','error');return;}
     if(state.psd.unsupported.length){status('agentStatus','Resolve unsupported Photoshop operations before export. This source is fail-closed.','error');return;}
     state.busy=true;$('animate').disabled=true;$('previewState').textContent='AI + SPINE EXPORT';
     $('processingTitle').textContent='AI ANIMATION';$('processingSub').textContent='Sending source artwork to the animation agent network.';$('processingOverlay').classList.add('show');
     try{
-      const composite=$('previewCanvas').toDataURL('image/png');
+      const sceneCanvas=document.createElement('canvas');sceneCanvas.width=state.psd.width;sceneCanvas.height=state.psd.height;
+      const sceneContext=sceneCanvas.getContext('2d');
+      for(const layer of selected.slice().reverse())sceneContext.drawImage(layer.canvas,layer.bounds.x,layer.bounds.y);
+      const composite=sceneCanvas.toDataURL('image/png');
       const layers=selected.map(x=>({id:x.id,image:x.canvas.toDataURL('image/png'),bounds:x.bounds}));
       const body=JSON.stringify({image:composite,canvas:{width:state.psd.width,height:state.psd.height},layers,description,
         instructions:'Preserve original draw order and every source pixel. Keep frame-zero setup pose identical. Create genuinely animated Spine scene clips with different numeric poses at distinct timestamps. Do not emit static fallback motion, empty clips, duplicate keys, or invented source layers. Preserve all supplied source layer IDs and bounds.'});
@@ -216,7 +225,7 @@
       const link=document.createElement('a');link.href=state.objectUrl;link.download=state.file.name.replace(/\.(psd|psb|png)$/i,'')+'_spine43.zip';link.click();
       $('previewState').textContent='ZIP READY';status('agentStatus','Spine ZIP created and downloaded. Verify the result in Spine Editor 4.3.26 before production.','success');
     }catch(error){status('agentStatus',error.message||String(error),'error');$('previewState').textContent='PIPELINE FAILED';}
-    finally{$('processingOverlay').classList.remove('show');state.busy=false;$('animate').disabled=!state.prepared||state.selected.size===0;}
+    finally{$('processingOverlay').classList.remove('show');state.busy=false;$('animate').disabled=!state.prepared||($('selectionOnly').checked&&state.selected.size===0);}
   }
   function reset(){
     if(state.objectUrl)URL.revokeObjectURL(state.objectUrl);
