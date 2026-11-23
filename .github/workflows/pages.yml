@@ -4,6 +4,7 @@ on:
     branches: [main]
     paths:
       - Spine-Mask-Tool/**
+      - spine-scripts/**
       - index.html
       - app.js
       - README.md
@@ -38,6 +39,7 @@ jobs:
         run: |
           set -euo pipefail
           node --check app.js
+          node --check spine-scripts/app.js
           node --input-type=module <<'PSDUPLOAD'
           import assert from 'node:assert/strict';
           import fs from 'node:fs';
@@ -316,13 +318,14 @@ jobs:
           test -s index.html && test -s app.js
           grep -Fq '<span class="version">v.1.4.11</span>' index.html || { echo "::error::Expected website v1.4.11"; exit 1; }
           grep -Fq 'src="./app.js' index.html || { echo "::error::Missing audited app.js reference"; exit 1; }
-          if grep -nEi 'github_pat_|ghp_[A-Za-z0-9]{20}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|ACCESS_TOKEN|SPINE_LICENSE_KEY|CLOUDFLARE_API_TOKEN' index.html app.js Spine-Mask-Tool/index.html Spine-Mask-Tool/app.js Spine-Mask-Tool/core.js Spine-Mask-Tool/linux-api.js; then
+          if grep -nEi 'github_pat_|ghp_[A-Za-z0-9]{20}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|ACCESS_TOKEN|SPINE_LICENSE_KEY|CLOUDFLARE_API_TOKEN' index.html app.js Spine-Mask-Tool/index.html Spine-Mask-Tool/app.js Spine-Mask-Tool/core.js Spine-Mask-Tool/linux-api.js spine-scripts/index.html spine-scripts/app.js; then
             echo "::error::Potential private credentials in public Pages"; exit 1
           fi
-          mkdir -p dist/Spine-Mask-Tool
+          mkdir -p dist/Spine-Mask-Tool dist/spine-scripts
           cp index.html app.js .nojekyll dist/
           cp Spine-Mask-Tool/index.html Spine-Mask-Tool/app.js Spine-Mask-Tool/core.js Spine-Mask-Tool/linux-api.js dist/Spine-Mask-Tool/
-          test "$(find dist -type f | wc -l)" -eq 7
+          cp spine-scripts/index.html spine-scripts/app.js dist/spine-scripts/
+          test "$(find dist -type f | wc -l)" -eq 9
           echo 'PUBLIC_PAGES_ALLOWLIST_PASS'
       - uses: actions/configure-pages@v5
       # A rerun keeps artifacts from earlier attempts in the same workflow run.
@@ -372,6 +375,10 @@ jobs:
               "https://spineanimator.github.io/?check=$GITHUB_SHA" \
               -o "$RUNNER_TEMP/published-index.html" || return 1
             grep -Fq 'SPINE ANIMATOR' "$RUNNER_TEMP/published-index.html" || return 1
+            curl -fLsS --max-time 15 "https://spineanimator.github.io/spine-scripts/?check=$GITHUB_SHA" -o "$RUNNER_TEMP/published-spine-scripts.html" || return 1
+            grep -Fq 'GitHub + Photoshop'\`'2Spine' "$RUNNER_TEMP/published-spine-scripts.html" || return 1
+            curl -fLsS --max-time 15 "https://spineanimator.github.io/spine-scripts/app.js?check=$GITHUB_SHA" -o "$RUNNER_TEMP/published-spine-scripts.js" || return 1
+            node --check "$RUNNER_TEMP/published-spine-scripts.js" || return 1
             grep -Fq 'src="./app.js?v=1.4.11"' "$RUNNER_TEMP/published-index.html" || return 1
             grep -Fq '<span class="version">v.1.4.11</span>' "$RUNNER_TEMP/published-index.html" || return 1
             curl -fLsS --max-time 15 \
