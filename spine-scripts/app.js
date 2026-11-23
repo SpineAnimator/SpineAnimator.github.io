@@ -148,111 +148,9 @@
     prepare();
   }
 
-  const CONTOUR_MODEL='Xenova/slimsam-77-uniform';
-  async function loadContourModel(){
-    if(!contourModelPromise){
-      contourModelPromise=(async()=>{
-        const tf=await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1');
-        tf.env.allowRemoteModels=true;tf.env.useBrowserCache=true;
-        if(tf.env.backends?.onnx?.wasm)tf.env.backends.onnx.wasm.numThreads=1;
-        let model,device='webgpu';
-        try{model=await tf.SamModel.from_pretrained(CONTOUR_MODEL,{device:'webgpu',dtype:'fp16'});}
-        catch(error){device='wasm';model=await tf.SamModel.from_pretrained(CONTOUR_MODEL,{device:'wasm',dtype:'q8'});}
-        const processor=await tf.AutoProcessor.from_pretrained(CONTOUR_MODEL);
-        return{model,processor,RawImage:tf.RawImage,device};
-      })().catch(error=>{contourModelPromise=null;throw error;});
-    }
-    return contourModelPromise;
-  }
-  function maskBounds(mask,width,height){
-    let x0=width,y0=height,x1=-1,y1=-1,area=0;
-    for(let y=0;y<height;y++)for(let x=0;x<width;x++)if(mask[y*width+x]){
-      area++;if(x<x0)x0=x;if(y<y0)y0=y;if(x>x1)x1=x;if(y>y1)y1=y;
-    }
-    return area?{x:x0,y:y0,width:x1-x0+1,height:y1-y0+1,area}:null;
-  }
-  function maskIoU(a,b){
-    let intersection=0,union=0;
-    for(let i=0;i<a.length;i+=4){if(a[i]&&b[i])intersection++;if(a[i]||b[i])union++;}
-    return union?intersection/union:0;
-  }
-  function canvasFromMaskedPixels(source,sourcePixels,mask,bounds){
-    const canvas=document.createElement('canvas');canvas.width=bounds.width;canvas.height=bounds.height;
-    const image=new ImageData(bounds.width,bounds.height),w=source.width;
-    for(let y=0;y<bounds.height;y++)for(let x=0;x<bounds.width;x++){
-      const src=((bounds.y+y)*w+bounds.x+x)*4,dst=(y*bounds.width+x)*4;
-      if(mask[(bounds.y+y)*w+bounds.x+x]){image.data[dst]=sourcePixels[src];image.data[dst+1]=sourcePixels[src+1];image.data[dst+2]=sourcePixels[src+2];image.data[dst+3]=sourcePixels[src+3];}
-    }
-    canvas.getContext('2d').putImageData(image,0,0);return canvas;
-  }
-  async function segmentPng(source){
-    const width=source.width,height=source.height,total=width*height;
-    if(total>6000000)throw Error('AI contour segmentation is limited to 6 megapixels per PNG to protect browser memory. Resize the source and retry.');
-    const ctx=source.getContext('2d',{willReadFrequently:true}),pixels=ctx.getImageData(0,0,width,height).data;
-    let visible=0,x0=width,y0=height,x1=-1,y1=-1;
-    for(let y=0;y<height;y++)for(let x=0;x<width;x++)if(pixels[(y*width+x)*4+3]>8){visible++;if(x<x0)x0=x;if(y<y0)y0=y;if(x>x1)x1=x;if(y>y1)y1=y;}
-    if(!visible)throw Error('PNG has no visible pixels to segment.');
-    const {model,processor,RawImage,device}=await loadContourModel();
-    const image=RawImage.fromCanvas(source),points=[];
-    for(let gy=0;gy<4;gy++)for(let gx=0;gx<4;gx++){
-      const x=Math.min(width-1,Math.max(0,Math.round(x0+(x1-x0)*(gx+.5)/4)));
-      const y=Math.min(height-1,Math.max(0,Math.round(y0+(y1-y0)*(gy+.5)/4)));
-      if(pixels[(y*width+x)*4+3]>8)points.push([[x,y]]);
-    }
-    if(!points.length)throw Error('Could not find visible PNG pixels for AI prompts.');
-    status('leftStatus','Running SlimSAM mask generation locally ('+device+'), '+points.length+' prompt points…');
-    const inputs=await processor(image,{input_points:[points]});
-    const outputs=await model(inputs);
-    const masks=await processor.post_process_masks(outputs.pred_masks,inputs.original_sizes,inputs.reshaped_input_sizes);
-    const tensor=masks?.[0],dims=tensor?.dims||[],data=tensor?.data,scores=outputs?.iou_scores?.data;
-    if(!tensor||!data||dims.length<4)throw Error('SlimSAM returned no usable pixel masks.');
-    const pointCount=dims[0],maskCount=dims[1],maskHeight=dims[dims.length-2],maskWidth=dims[dims.length-1],maskPixels=maskHeight*maskWidth;
-    if(maskWidth!==width||maskHeight!==height)throw Error('AI mask dimensions do not match the source PNG.');
-    const candidates=[];
-    for(let p=0;p<pointCount;p++)for(let m=0;m<maskCount;m++){
-      if(candidates.length>=24)continue;
-      const score=Number(scores?.[p*maskCount+m]??0);if(score<.55)continue;
-      const mask=new Uint8Array(total),offset=(p*maskCount+m)*maskPixels;let area=0;
-      for(let i=0;i<total;i++){if(data[offset+i]&&pixels[i*4+3]>8){mask[i]=1;area++;}}
-      if(area<Math.max(24,visible*.001)||(area>visible*.995&&candidates.length))continue;
-      const bounds=maskBounds(mask,width,height);if(!bounds)continue;
-      const duplicate=candidates.findIndex(c=>maskIoU(mask,c.mask)>.88);
-      if(duplicate>=0){if(score>candidates[duplicate].score)candidates[duplicate]={mask,score,bounds};continue;}
-      candidates.push({mask,score,bounds});
-    }
-    if(!candidates.length)throw Error('SlimSAM did not return stable object masks for this PNG. No synthetic layers were created.');
-    candidates.sort((a,b)=>a.bounds.area-b.bounds.area||b.score-a.score);
-    const remaining=new Uint8Array(total);
-    for(let i=0;i<total;i++)remaining[i]=pixels[i*4+3]>8?1:0;
-    const layers=[];
-    for(const candidate of candidates.slice(0,24)){
-      const assigned=new Uint8Array(total);let area=0;
-      for(let i=0;i<total;i++)if(remaining[i]&&candidate.mask[i]){assigned[i]=1;remaining[i]=0;area++;}
-      if(area<24)continue;
-      const bounds=maskBounds(assigned,width,height);if(!bounds)continue;
-      const canvas=canvasFromMaskedPixels(source,pixels,assigned,bounds);
-      const id='sam_segment_'+String(layers.length+1).padStart(2,'0');
-      layers.push({id,name:'AI segment '+String(layers.length+1).padStart(2,'0'),canvas,selected:true,bounds:{x:bounds.x,y:bounds.y,width:bounds.width,height:bounds.height},confidence:candidate.score});
-    }
-    const residualBounds=maskBounds(remaining,width,height);
-    if(residualBounds&&residualBounds.area>=24){
-      const canvas=canvasFromMaskedPixels(source,pixels,remaining,residualBounds);
-      layers.push({id:'source_residual',name:'Unsegmented source pixels',canvas,selected:true,bounds:{x:residualBounds.x,y:residualBounds.y,width:residualBounds.width,height:residualBounds.height},confidence:1});
-    }
-    if(!layers.length)throw Error('AI segmentation produced no exportable transparent layers.');
-    const composite=document.createElement('canvas');composite.width=width;composite.height=height;composite.getContext('2d').drawImage(source,0,0);
-    return{width,height,composite,layers,device,visiblePixels:visible,segments:candidates.length};
-  }
+  // PNG-to-Spine is deliberately fail-closed until semantic anatomy and mask QA are integrated.
   function downloadLayeredPsd(){
-    if(!state.psd||!state.layers.length)throw Error('No segmented layers are ready for PSD export.');
-    const writer=window.agPsd||window['ag-psd'];
-    if(!writer?.writePsd)throw Error('The PSD writer is not available.');
-    const children=state.layers.slice().reverse().map(layer=>({name:layer.name,canvas:layer.canvas,left:layer.bounds.x,top:layer.bounds.y,
-      right:layer.bounds.x+layer.bounds.width,bottom:layer.bounds.y+layer.bounds.height,opacity:255,hidden:false}));
-    const buffer=writer.writePsd({width:state.psd.width,height:state.psd.height,canvas:state.psd.composite,children});
-    const blob=new Blob([buffer],{type:'application/octet-stream'}),url=URL.createObjectURL(blob),link=document.createElement('a');
-    link.href=url;link.download=state.file.name.replace(/\\.png$/i,'')+'_AI_layers.psd';link.click();setTimeout(()=>URL.revokeObjectURL(url),30000);
-    status('leftStatus','Layered PSD exported with '+state.layers.length+' transparent layers. Verify its layer order and pixels in Photoshop before final use.','success');
+    throw Error('PNG-to-PSD export is disabled until the anatomical decomposition pipeline passes its quality gates.');
   }
 
   async function prepare(){
@@ -261,18 +159,15 @@
     try{
       if(state.kind==='png'){
         const image=await canvasFromImage(state.file);drawPreview(image);
-        $('previewState').textContent='AI CONTOUR SEGMENTATION';
-        status('leftStatus','Loading the local AI contour model…');
-        const segmented=await segmentPng(image);
-        state.psd={width:segmented.width,height:segmented.height,composite:segmented.composite,layers:segmented.layers,unsupported:[]};
-        state.layers=segmented.layers;state.selected=new Set(segmented.layers.map(x=>x.id));state.prepared=true;
-        renderLayers(state.layers.map(item=>({type:'layer',item,depth:0})));
-        $('downloadPsd').disabled=false;
-        $('layerWarning').textContent='SlimSAM produced pixel masks locally in this browser. These are visual regions, not anatomical labels or a finished rig. Review the transparent regions, rename them if needed, and verify the PSD in Photoshop. Unassigned visible pixels are preserved in a residual layer.';
+        state.psd={width:image.width,height:image.height,composite:image,layers:[],unsupported:['PNG requires semantic anatomical decomposition']};
+        state.layers=[];state.selected.clear();state.prepared=false;
+        renderLayers([]);
+        $('downloadPsd').disabled=true;
+        $('layerWarning').textContent='PNG preview only. Production segmentation is locked: the system must identify named anatomical parts, infer joints and occlusion, create source-aligned transparent masks, minimize the part count for the requested motion, and pass independent geometry/art review. No generic visual regions or unnamed layers will be exported.';
         $('layerWarning').classList.add('show');
-        $('previewState').textContent='AI MASKS READY';
-        status('leftStatus','AI contour segmentation complete: '+segmented.segments+' candidate masks, '+state.layers.length+' transparent layers ('+segmented.device+').','success');
-        status('agentStatus','Transparent layers are ready. Download the layered PSD or send these exact masks to the existing animation planner and Spine ZIP generator.','success');
+        $('previewState').textContent='ANATOMY PIPELINE REQUIRED';
+        status('leftStatus','Image loaded at original dimensions. High-quality anatomical decomposition is not yet connected; no layers were fabricated.','error');
+        status('agentStatus','Blocked before animation. Connect A2 semantic decomposition, A3 rig feasibility and A5 independent mask/art review in the SA operation graph.','error');
       }else{
         const buffer=await state.file.arrayBuffer();const parsed=parsePsd(buffer);
         state.psd=parsed;state.layers=parsed.layers;state.selected=new Set(parsed.layers.map(x=>x.id));
@@ -351,7 +246,7 @@
     $('previewCanvas').hidden=true;$('previewEmpty').hidden=false;$('previewDimensions').textContent='No image';$('previewName').textContent='No source loaded';$('previewState').textContent='IDLE';
     $('layerList').innerHTML='<div class="preview-empty">Your PSD layer structure will appear here.</div>';$('layerCount').textContent='0 layers';$('layerWarning').classList.remove('show');
     $('prepare').disabled=true;$('reset').disabled=true;$('animate').disabled=true;$('downloadPsd').disabled=true;$('motion').value='';
-    status('leftStatus','Waiting for a source file.');status('agentStatus','Prepare a PSD source to enable the animation pipeline.');
+    status('leftStatus','Waiting for a source file.');status('agentStatus','PNG requires approved anatomical decomposition; PSD source layers can be inspected.');
   }
   $('sourceFile').addEventListener('change',e=>selectFile(e.target.files?.[0]));
   $('dropzone').addEventListener('dragover',e=>{e.preventDefault();$('dropzone').classList.add('drag');});
