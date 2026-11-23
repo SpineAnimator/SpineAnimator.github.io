@@ -976,10 +976,26 @@
       player.animationState.clearTracks();
       player.animationState.setAnimation(0, animationName, true);
       player.paused = false;
-      await new Promise(resolve => setTimeout(resolve, 650));
-      const canvas = player.canvas;
-      if (!canvas || !(canvas.width > 0 && canvas.height > 0) || typeof canvas.captureStream !== 'function')
-        throw Error('Spine Player did not produce a capturable canvas');
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      let canvas = player.canvas;
+      let previousWidth = 0, previousHeight = 0, stableSizeChecks = 0;
+      for (let attempt = 0; attempt < 20; attempt++) {
+        canvas = player.canvas;
+        const width = Number(canvas?.width) || 0;
+        const height = Number(canvas?.height) || 0;
+        if (width > 0 && width === previousWidth && height === previousHeight) {
+          stableSizeChecks++;
+          if (stableSizeChecks >= 2) break;
+        } else {
+          stableSizeChecks = 0;
+        }
+        previousWidth = width;
+        previousHeight = height;
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+      if (!canvas || stableSizeChecks < 2 || !(canvas.width > 0 && canvas.height > 0) ||
+          typeof canvas.captureStream !== 'function')
+        throw Error('Spine Player canvas did not reach a stable capturable size');
       const gl = canvas.getContext('webgl2') || canvas.getContext('webgl');
       if (gl && typeof gl.readPixels === 'function') {
         try {
