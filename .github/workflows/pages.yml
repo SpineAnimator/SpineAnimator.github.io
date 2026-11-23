@@ -1172,7 +1172,10 @@ jobs:
             return Buffer.concat([...locals,directory,end]);
           }
           function smokeZip(request) {
-            const layers=request.layers||[],clips=request.scene?.clips||[];
+            const layers=request.layers||[],clips=request.scene?.clips||[],sourceLayers=request.sourceLayers||[];
+            if(sourceLayers.length!==layers.length || sourceLayers.some((layer,index)=>
+              !layer || layer.id!==layers[index].id || typeof layer.sourceName!=='string' || layer.sourceIndex!==index))
+              throw Error('Smoke ZIP requires exact source-layer names and unique technical IDs');
             const width=Number(request.canvas?.width)||1,height=Number(request.canvas?.height)||1;
             const bones=[{name:'root'}],slots=[],attachments={},atlasPages=[],files={};
             for(let i=0;i<layers.length;i++){
@@ -1197,12 +1200,17 @@ jobs:
               width,height,images:'./images/',audio:'./audio'},
               bones,slots,skins:[{name:'default',attachments}],animations};
             const manifest={backend:'2spine-cloud-executor',spine:'4.3.26',layerCount:layers.length,
-              clipCount:clips.length,validation:{setupPreserved:true,drawOrderPreserved:true,frameZeroPreserved:true},
+              clipCount:clips.length,sourceLayerNamesPreserved:true,sourceLayerMapFile:'source-layer-map.json',
+              validation:{setupPreserved:true,drawOrderPreserved:true,frameZeroPreserved:true},
               renderEvidence:{status:'not-rendered',frameCount:0},artisticApproval:'pending',
               releaseReady:false,nativeSpineEditorFile:false};
             files['skeleton.json']=JSON.stringify(skeleton);
             files['skeleton.atlas']=atlasPages.join('\n');
             files['manifest.json']=JSON.stringify(manifest);
+            files['source-layer-map.json']=JSON.stringify({version:1,sourceFileName:request.sourceFileName||null,
+              sourceLayers:sourceLayers.map(layer=>({id:layer.id,sourceName:layer.sourceName,
+                sourceIndex:layer.sourceIndex,kind:layer.kind||'raster',visible:layer.visible!==false,
+                opacity:Number.isFinite(layer.opacity)?layer.opacity:255,bounds:layer.bounds}))});
             return zipStored(files);
           }
           async function newPage({planStatus=200,planBody=null}={}){
