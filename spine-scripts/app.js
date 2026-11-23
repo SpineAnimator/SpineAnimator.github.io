@@ -114,7 +114,7 @@
         }
         sourceLayers.push(record);
         const tagMatch=sourceName.match(/\[(bone|slot|skin|mesh|linkedmesh|clip|overlay|merge|draworder|event)\]/i);
-        if(tagMatch)addUnsupported(sourceName,'PhotoshopToSpine tag ['+tagMatch[1]+'] is not mapped by the browser exporter');
+        if(tagMatch)addUnsupported(sourceName,'Legacy layer-export tag ['+tagMatch[1]+'] is not mapped by the browser exporter');
         inspectFeatures(layer,sourceName);
         if(isGroup){
           rows.push({type:'group',name:sourceName,depth,visible,sourceIndex:index});
@@ -207,7 +207,7 @@
 
   // PNG-to-Spine is deliberately fail-closed until semantic anatomy and mask QA are integrated.
   function downloadLayeredPsd(){
-    throw Error('Photoshop PSD reconstruction is not implemented in this browser pipeline. No PSD export is created.');
+    throw Error('PSD reconstruction is not implemented in this browser pipeline. No PSD export is created.');
   }
 
   async function prepare(){
@@ -235,7 +235,7 @@
         if(state.prepared){
           const hidden=parsed.layers.filter(x=>!x.visible).length;
           status('leftStatus','Browser parser reconstructed '+parsed.layers.length+' raster layers; '+hidden+' hidden layers remain in the source map. Composite audit: '+parsed.compositeAudit.status+'.','success');
-          status('agentStatus','Source metadata preserves original names, duplicate names, visibility and bounds. This remains an independent browser pipeline, not Photoshop parity.');
+          status('agentStatus','Source metadata preserves original names, duplicate names, visibility and bounds. Pixel-level equivalence with external editors is not certified.');
         }else{
           status('leftStatus','Browser parser found unsupported PSD features or a composite mismatch. Export is locked.','error');
           status('agentStatus','Resolve unsupported features and achieve an exact source-composite audit before AI export.','error');
@@ -315,7 +315,7 @@
     $('previewCanvas').hidden=true;$('previewEmpty').hidden=false;$('previewDimensions').textContent='No image';$('previewName').textContent='No source loaded';$('previewState').textContent='IDLE';
     $('layerList').innerHTML='<div class="preview-empty">Your PSD layer structure will appear here.</div>';$('layerCount').textContent='0 layers';$('layerWarning').classList.remove('show');
     $('prepare').disabled=true;$('reset').disabled=true;$('animate').disabled=true;$('downloadPsd').disabled=true;$('motion').value='';
-    status('leftStatus','Waiting for a source file.');status('agentStatus','Browser-side ag-psd parser ready. This pipeline is separate from Photoshop and does not certify Photoshop pixel parity.');
+    status('leftStatus','Waiting for a source file.');status('agentStatus','Browser-side ag-psd parser ready. Pixel-level equivalence with external editors is not certified.');
   }
   $('sourceFile').addEventListener('change',e=>selectFile(e.target.files?.[0]));
   $('dropzone').addEventListener('dragover',e=>{e.preventDefault();$('dropzone').classList.add('drag');});

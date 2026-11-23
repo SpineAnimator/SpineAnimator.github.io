@@ -14,8 +14,8 @@ const inputTag=id=>{
 
 assert.ok(html.includes('ag-psd@14.5.2'),'browser parser version must be pinned');
 assert.ok(html.includes('Parser provenance:'),'visible parser provenance note is required');
-assert.ok(html.includes('Adobe Photoshop is not invoked'),'UI must not imply Photoshop execution');
-assert.ok(html.includes('Pixel parity with Photoshop is unverified'),'Photoshop pixel parity must remain unclaimed');
+assert.ok(html.includes('no external image editor is invoked'),'UI must not imply external editor execution');
+assert.ok(html.includes('Pixel-level equivalence is not certified'),'pixel-level parity must remain unclaimed');
 assert.ok(html.includes('Real PSB compatibility remains experimental'),'PSB support must remain qualified');
 assert.ok(html.includes('app.js?v=20261123b'),'app.js cache key must match the reviewed source');
 assert.ok(!html.includes('GitHub + Photoshop'),'misleading Photoshop branding must be absent');

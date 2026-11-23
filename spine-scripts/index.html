@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
-<meta name="description" content="Browser-side ag-psd PSD/PSB parser and AI-assisted Spine 4.3 pipeline; not an Adobe Photoshop export.">
+<meta name="description" content="Browser-side PSD/PSB parser and AI-assisted Spine 4.3 pipeline; no external editor is required.">
 <title>Browser PSD Parser → Spine — Spine Animator</title>
 <style>
 :root{color-scheme:dark;font-family:"IBM Plex Sans",Inter,ui-sans-serif,system-ui,sans-serif;--bg:#111112;--panel:#19191b;--panel2:#202023;--line:#303034;--muted:#929297;--text:#f1f1f2;--orange:#ff741c;--orange2:#ff9a4b;--danger:#e28d83;--green:#86c79b}
@@ -41,8 +41,8 @@ footer{padding:10px 24px 14px;text-align:center;color:#626268;font-size:9px;lett
   <div class="top-actions"><span class="pill"><strong>PSD / PSB</strong> → Spine 4.3+</span><span class="pill">AI ANIMATION PIPELINE</span><a class="pill" href="https://chatgpt.com/plugins/plugins_6aee58be7afc8191ab38906919ca3dad" target="_blank" rel="noopener noreferrer" style="color:var(--orange)">GPT-6 anatomy ↗</a></div>
 </header>
 <main>
-  <div class="intro"><div><div class="eyebrow">Independent web utility</div><h1>Layered PSD/PSB → Spine animation</h1><p>Browser-side layer extraction and AI-assisted scene planning. This is a separate parser pipeline, not a Photoshop export.</p></div><div class="version">WEB EXPORTER · v1.0</div></div>
-  <div class="parser-note" role="note"><strong>Parser provenance:</strong> PSD/PSB parsing runs in this browser with <code>ag-psd 14.5.2</code>; Adobe Photoshop is not invoked. Pixel parity with Photoshop is unverified. Real PSB compatibility remains experimental until tested with an actual PSB in Photoshop. Do not treat this pipeline as Photoshop output.</div>
+  <div class="intro"><div><div class="eyebrow">Independent web utility</div><h1>Layered PSD/PSB → Spine animation</h1><p>Browser-side layer extraction and AI-assisted scene planning. No external image editor is invoked.</p></div><div class="version">WEB EXPORTER · v1.0</div></div>
+  <div class="parser-note" role="note"><strong>Parser provenance:</strong> PSD/PSB parsing runs in this browser with <code>ag-psd 14.5.2</code>; no external image editor is invoked. Pixel-level equivalence is not certified. Real PSB compatibility remains experimental until real PSB fixtures pass browser parsing and Spine Editor 4.3.26 import/render review.</div>
   <section class="workspace" id="workspace">
     <section class="panel" aria-label="Source file and settings">
       <div class="panel-head">01 / SOURCE FILE <small>PSD · PSB · PNG</small></div>
@@ -78,7 +78,7 @@ footer{padding:10px 24px 14px;text-align:center;color:#626268;font-size:9px;lett
         <div class="layer-warning" id="layerWarning"></div>
         <div class="section-label">AI animation request</div>
         <textarea id="motion" rows="3" placeholder="Describe the motion, timing and acting you want the AI animation agents to create…" style="resize:vertical;width:100%;background:#111113;color:#eee;border:1px solid var(--line);padding:10px;font-size:11px;line-height:1.5"></textarea>
-        <button class="action secondary" id="downloadPsd" type="button" disabled title="Photoshop PSD reconstruction is not implemented in this browser pipeline.">Layered PSD reconstruction unavailable</button>
+        <button class="action secondary" id="downloadPsd" type="button" disabled title="PSD reconstruction is not implemented in this browser pipeline.">Layered PSD reconstruction unavailable</button>
         <button class="action" id="animate" type="button" disabled>Send to animation agents</button>
         <div class="status" id="agentStatus" aria-live="polite">Prepare a PSD source to enable the animation pipeline.</div>
       </div>
