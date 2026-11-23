@@ -227,8 +227,12 @@
       if (ranges[i][0] < ranges[i - 1][1])
         throw Error('ZIP local entries overlap: ' + ranges[i][2]);
     for (const name of ['skeleton.json', 'skeleton.atlas', 'manifest.json', 'source-layer-map.json'])
-      if (!files.has(name)) throw Error('ZIP is missing required file: ' + name +
-        ' (entries: ' + Array.from(files.keys()).slice(0,16).join(', ') + ')');
+      if (!files.has(name)) {
+        const names = Array.from(files.keys());
+        const manifestInfo = files.has('manifest.json') ? decoder.decode(files.get('manifest.json')).slice(0,360) : 'missing';
+        throw Error('ZIP is missing required file: ' + name +
+          ' (entryCount: ' + names.length + '; entries: ' + names.join(', ') + '; manifest: ' + manifestInfo + ')');
+      }
     if (!source || !Array.isArray(source.layers) || !Array.isArray(plannedClips) || !plannedClips.length)
       throw Error('Source layer inventory or planned clip list is missing.');
     const skeleton = JSON.parse(decoder.decode(files.get('skeleton.json')));
