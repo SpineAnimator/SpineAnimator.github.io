@@ -1,0 +1,56 @@
+name: Free public mask executor
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'Spine-Mask-Tool/**'
+      - '.github/workflows/mask-executor.yml'
+  pull_request:
+    paths:
+      - 'Spine-Mask-Tool/**'
+      - '.github/workflows/mask-executor.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-mask-executor-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mask-engine:
+    name: Execute and validate Spine clipping masks
+    # This repository is public: standard GitHub-hosted Ubuntu runners are free.
+    # Deliberately no workflow_call, private checkout, self-hosted runner or secrets.
+    if: github.repository == 'SpineAnimator/SpineAnimator.github.io'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout this public repository only
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check mask engine syntax
+        run: node --input-type=module --check < Spine-Mask-Tool/core.js
+
+      - name: Run mask geometry and Spine export tests
+        run: node --test Spine-Mask-Tool/tests/mask-executor.test.mjs
+
+      - name: Confirm executor has no private runtime dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -nE 'SOURCE_REPO_TOKEN|spine-animator-private|RUNNER_TOKEN|secrets\.' \
+            .github/workflows/mask-executor.yml Spine-Mask-Tool/tests/mask-executor.test.mjs; then
+            echo '::error::Private repository or secret dependency detected'
+            exit 1
+          fi
+          echo 'PUBLIC_MASK_EXECUTOR_NO_PRIVATE_DEPENDENCIES_PASS'
