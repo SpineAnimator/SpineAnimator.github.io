@@ -4,8 +4,8 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="color-scheme" content="dark">
-<meta name="description" content="Browser-based PSD/PSB preparation and AI-assisted Spine 4.3 project pipeline.">
-<title>GitHub + Photoshop`2Spine — Spine Animator</title>
+<meta name="description" content="Browser-side ag-psd PSD/PSB parser and AI-assisted Spine 4.3 pipeline; not an Adobe Photoshop export.">
+<title>Browser PSD Parser → Spine — Spine Animator</title>
 <style>
 :root{color-scheme:dark;font-family:"IBM Plex Sans",Inter,ui-sans-serif,system-ui,sans-serif;--bg:#111112;--panel:#19191b;--panel2:#202023;--line:#303034;--muted:#929297;--text:#f1f1f2;--orange:#ff741c;--orange2:#ff9a4b;--danger:#e28d83;--green:#86c79b}
 *{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text)}body{min-height:100vh;background-image:radial-gradient(ellipse at 90% 0%,#ff741c12,transparent 38%)}
@@ -22,7 +22,7 @@ main{flex:1;min-height:0;padding:20px 22px 14px}.intro{display:flex;align-items:
 .file-info{border:1px solid var(--line);background:#141416;padding:11px;display:none}.file-info.show{display:block}.file-row{display:flex;align-items:center;justify-content:space-between;gap:8px}.filename{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.filetype{font-size:9px;color:var(--orange);border:1px solid #5a3925;padding:3px 6px;white-space:nowrap}.file-meta{font-size:10px;color:var(--muted);margin-top:6px}
 .settings{border-top:1px solid var(--line);padding-top:12px}.section-label{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}.checks{display:grid;grid-template-columns:1fr 1fr;gap:9px 8px}.check{display:flex;align-items:center;gap:7px;font-size:10px;color:#c3c3c7;cursor:pointer}.check input{accent-color:var(--orange);margin:0}.range-row{display:grid;grid-template-columns:1fr 64px;gap:9px;align-items:center;margin-top:11px}.range-row label{font-size:10px;color:var(--muted)}.range-row input{width:100%;accent-color:var(--orange)}.range-row output{font-size:10px;text-align:right;color:#ddd}
 .action{border:1px solid var(--orange);background:var(--orange);color:#17110d;padding:11px 14px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;transition:.2s}.action:hover:not(:disabled){background:var(--orange2);border-color:var(--orange2)}.action:disabled{opacity:.38;cursor:not-allowed}.action.secondary{background:transparent;color:var(--text);border-color:var(--line)}.action.secondary:hover:not(:disabled){border-color:var(--orange);color:var(--orange)}.button-row{display:flex;gap:8px}.button-row>*{flex:1}
-.layer-toolbar{display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--muted)}.layer-toolbar button{border:0;background:none;color:var(--orange);font-size:10px;padding:0}.layer-list{flex:1;min-height:140px;overflow:auto;border:1px solid var(--line);background:#141416;padding:6px}.layer-item{display:flex;align-items:center;gap:8px;min-height:32px;padding:5px 7px;border-bottom:1px solid #252528;font-size:11px}.layer-item:last-child{border:0}.layer-item:hover{background:#242427}.layer-item input{accent-color:var(--orange);margin:0}.layer-icon{color:#b8b8bd;font-size:10px;width:15px;text-align:center}.layer-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.layer-dims{font-size:9px;color:#77777d;white-space:nowrap}.layer-group{color:#d2a16f}.layer-warning{font-size:10px;line-height:1.5;color:#d8b18d;background:#241d17;border:1px solid #57402c;padding:9px;display:none}.layer-warning.show{display:block}
+.layer-toolbar{display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--muted)}.layer-toolbar button{border:0;background:none;color:var(--orange);font-size:10px;padding:0}.layer-list{flex:1;min-height:140px;overflow:auto;border:1px solid var(--line);background:#141416;padding:6px}.layer-item{display:flex;align-items:center;gap:8px;min-height:32px;padding:5px 7px;border-bottom:1px solid #252528;font-size:11px}.layer-item:last-child{border:0}.layer-item:hover{background:#242427}.layer-item input{accent-color:var(--orange);margin:0}.layer-icon{color:#b8b8bd;font-size:10px;width:15px;text-align:center}.layer-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.layer-dims{font-size:9px;color:#77777d;white-space:nowrap}.layer-group{color:#d2a16f}.layer-warning{font-size:10px;line-height:1.5;color:#d8b18d;background:#241d17;border:1px solid #57402c;padding:9px;display:none}.layer-warning.show{display:block}\n.parser-note{max-width:1700px;margin:0 auto 16px;padding:10px 12px;border:1px solid #59402d;background:#211a15;color:#d9c1a9;font-size:11px;line-height:1.55}.parser-note strong{color:#ffb36f}.parser-note code{color:#ffd1a4;font-family:ui-monospace,monospace}
 .preview-area{flex:1;min-height:0;position:relative;display:grid;place-items:center;overflow:hidden;background-color:#171719;background-image:linear-gradient(45deg,#202023 25%,transparent 25%),linear-gradient(-45deg,#202023 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#202023 75%),linear-gradient(-45deg,transparent 75%,#202023 75%);background-size:22px 22px;background-position:0 0,0 11px,11px -11px,-11px 0}.preview-area canvas{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;display:block}.preview-empty{font-size:11px;color:#77777d;text-align:center;padding:24px}.preview-footer{height:38px;min-height:38px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 13px;border-top:1px solid var(--line);font-size:10px;color:var(--muted)}.preview-footer strong{color:#ddd;font-weight:500}
 .processing-overlay{position:absolute;inset:0;background:#080809b8;display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;z-index:2;text-align:center;backdrop-filter:blur(1px)}.processing-overlay.show{display:flex}.spinner{width:54px;height:54px;border:2px solid #ffffff24;border-top-color:var(--orange);border-right-color:var(--orange);border-radius:50%;animation:spin .8s linear infinite;box-shadow:0 0 28px #ff741c35}@keyframes spin{to{transform:rotate(360deg)}}.processing-title{font-size:13px;color:#fff;font-weight:600;letter-spacing:.1em}.processing-sub{font-size:10px;color:#d0c5bd;max-width:260px;line-height:1.5}
 .status{font-size:10px;line-height:1.5;color:var(--muted);min-height:28px;overflow-wrap:anywhere}.status.error{color:var(--danger)}.status.success{color:var(--green)}.progress{height:2px;background:#333;overflow:hidden;display:none}.progress.show{display:block}.progress i{display:block;height:100%;width:35%;background:var(--orange);animation:progress 1.5s ease-in-out infinite}@keyframes progress{0%{transform:translateX(-110%)}100%{transform:translateX(310%)}}
@@ -36,12 +36,12 @@ footer{padding:10px 24px 14px;text-align:center;color:#626268;font-size:9px;lett
 <body>
 <div class="app">
 <header class="topbar">
-  <div class="brand"><div class="brand-mark"><span>2S</span></div><div><div class="brand-name">GitHub + Photoshop<em>`2Spine</em></div><div class="brand-sub">SPINE ANIMATOR · WEB TOOLCHAIN</div></div></div>
+  <div class="brand"><div class="brand-mark"><span>2S</span></div><div><div class="brand-name">Browser Parser<em> → Spine</em></div><div class="brand-sub">SPINE ANIMATOR · WEB TOOLCHAIN</div></div></div>
   <div class="top-actions"><span class="pill"><strong>PSD / PSB</strong> → Spine 4.3+</span><span class="pill">AI ANIMATION PIPELINE</span><a class="pill" href="https://chatgpt.com/plugins/plugins_6aee58be7afc8191ab38906919ca3dad" target="_blank" rel="noopener noreferrer" style="color:var(--orange)">GPT-6 anatomy ↗</a></div>
 </header>
 <main>
-  <div class="intro"><div><div class="eyebrow">Independent web utility</div><h1>Photoshop layers → Spine animation</h1><p>PSD layers can be inspected directly. PNG stays preview-only until named anatomical parts, motion-aware masks and independent quality review are connected.</p></div><div class="version">WEB EXPORTER · v1.0</div></div>
-  <section class="workspace" id="workspace">
+  <div class="intro"><div><div class="eyebrow">Independent web utility</div><h1>Layered PSD/PSB → Spine animation</h1><p>Browser-side layer extraction and AI-assisted scene planning. This is a separate parser pipeline, not a Photoshop export.</p></div><div class="version">WEB EXPORTER · v1.0</div></div>
+  <div class="parser-note" role="note"><strong>Parser provenance:</strong> PSD/PSB parsing runs in this browser with <code>ag-psd 14.5.2</code>; Adobe Photoshop is not invoked. Pixel parity with Photoshop is unverified. Real PSB compatibility remains experimental until tested with an actual PSB in Photoshop. Do not treat this pipeline as Photoshop output.</div>\n  <section class="workspace" id="workspace">
     <section class="panel" aria-label="Source file and settings">
       <div class="panel-head">01 / SOURCE FILE <small>PSD · PSB · PNG</small></div>
       <div class="panel-body">
@@ -52,17 +52,17 @@ footer{padding:10px 24px 14px;text-align:center;color:#626268;font-size:9px;lett
         </label>
         <div class="file-info" id="fileInfo"><div class="file-row"><span class="filename" id="fileName"></span><span class="filetype" id="fileType"></span></div><div class="file-meta" id="fileMeta"></div></div>
         <div class="settings">
-          <div class="section-label">PhotoshopToSpine · export rules</div>
+          <div class="section-label">Browser parser · source-preservation rules</div>
           <div class="checks">
-            <label class="check"><input id="ignoreHidden" type="checkbox" checked> Ignore hidden layers</label>
-            <label class="check"><input id="ignoreBackground" type="checkbox" checked> Ignore Background</label>
-            <label class="check"><input id="trimWhitespace" type="checkbox" checked> Trim whitespace</label>
+            <label class="check"><input id="ignoreHidden" type="checkbox"> Exclude hidden layers from source map</label>
+            <label class="check"><input id="ignoreBackground" type="checkbox"> Exclude Background layer</label>
+            <label class="check"><input id="trimWhitespace" type="checkbox"> Trim transparent borders</label>
             <label class="check"><input id="writeJson" type="checkbox" checked> Spine JSON</label>
             <label class="check"><input id="writeTemplate" type="checkbox"> Template data</label>
             <label class="check"><input id="selectionOnly" type="checkbox"> Selected layers only</label>
           </div>
           <div class="range-row"><label for="scale">Image scale</label><input id="scale" type="range" min="1" max="400" value="100"><output id="scaleValue">100%</output></div>
-          <div class="range-row"><label for="padding">Trim padding</label><input id="padding" type="range" min="0" max="4" value="1"><output id="paddingValue">1 px</output></div>
+          <div class="range-row"><label for="padding">Trim padding</label><input id="padding" type="range" min="0" max="4" value="0"><output id="paddingValue">0 px</output></div>
         </div>
         <div class="button-row"><button class="action secondary" id="reset" type="button" disabled>Reset</button><button class="action" id="prepare" type="button" disabled>Prepare source</button></div>
         <div class="progress" id="leftProgress"><i></i></div><div class="status" id="leftStatus" aria-live="polite">Waiting for a source file.</div>
@@ -71,12 +71,12 @@ footer{padding:10px 24px 14px;text-align:center;color:#626268;font-size:9px;lett
     <section class="panel hidden-panel" id="layersPanel" aria-label="PSD layers">
       <div class="panel-head">02 / LAYER TREE <small id="layerCount">0 layers</small></div>
       <div class="panel-body">
-        <div class="layer-toolbar"><span>Visible source layers in draw order</span><button id="selectAll" type="button">Select all</button></div>
+        <div class="layer-toolbar"><span>Source raster layers in draw order</span><button id="selectAll" type="button">Select all</button></div>
         <div class="layer-list" id="layerList"><div class="preview-empty">Your PSD layer structure will appear here.</div></div>
         <div class="layer-warning" id="layerWarning"></div>
         <div class="section-label">AI animation request</div>
         <textarea id="motion" rows="3" placeholder="Describe the motion, timing and acting you want the AI animation agents to create…" style="resize:vertical;width:100%;background:#111113;color:#eee;border:1px solid var(--line);padding:10px;font-size:11px;line-height:1.5"></textarea>
-        <button class="action secondary" id="downloadPsd" type="button" disabled>Download layered PSD</button>
+        <button class="action secondary" id="downloadPsd" type="button" disabled title="Photoshop PSD reconstruction is not implemented in this browser pipeline.">Layered PSD reconstruction unavailable</button>
         <button class="action" id="animate" type="button" disabled>Send to animation agents</button>
         <div class="status" id="agentStatus" aria-live="polite">Prepare a PSD source to enable the animation pipeline.</div>
       </div>
@@ -92,7 +92,7 @@ footer{padding:10px 24px 14px;text-align:center;color:#626268;font-size:9px;lett
     </section>
   </section>
 </main>
-<footer>SPINE ANIMATOR · GITHUB + PHOTOSHOP`2SPINE · PRIVATE SOURCE PROCESSING</footer>
+<footer>SPINE ANIMATOR · BROWSER PSD PARSER · INDEPENDENT SPINE PIPELINE</footer>
 </div>
 </body>
 </html>
