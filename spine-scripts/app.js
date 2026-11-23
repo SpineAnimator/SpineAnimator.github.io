@@ -283,12 +283,16 @@
       const compositeAudit=state.psd.compositeAudit;
       const instructions=state.kind==='png'
         ?'The source is one flattened PNG partitioned into disjoint AI-generated pixel masks. There is no original layer order or hidden anatomy to infer. Preserve the supplied region order and exact source composite at frame zero; treat mask regions as visual cutouts, not anatomical labels. Keep every supplied source mask exactly once. Create genuinely animated Spine scene clips with different numeric poses at distinct timestamps. Do not emit static fallback motion, empty clips, duplicate keys, or invented source layers.'
-        :'Preserve sourceName exactly, including duplicate names, and preserve sourceIndex, sourceRecordId, visibility, opacity and original bounds. The id field is a unique technical identifier only; never rename, merge or invent source layers. Preserve visible draw order and the exact frame-zero composite. Hidden layers remain in source metadata and are excluded from animation unless explicitly selected by a future supported workflow. Create genuinely animated Spine scene clips with different numeric poses at distinct timestamps. Do not emit static fallback motion, empty clips, duplicate keys, or invented source layers.';
+        :'Preserve sourceName exactly, including duplicate names, and preserve sourceIndex, sourceRecordId, visibility, opacity and original bounds. The id field is a unique technical identifier only; never rename, merge or invent source layers. Preserve visible draw order and the exact frame-zero composite. Hidden layers remain in source metadata and are not animated by this export. Create genuinely animated Spine scene clips with different numeric poses at distinct timestamps. Do not emit static fallback motion, empty clips, duplicate keys, or invented source layers.';
       const body=JSON.stringify({image:composite,canvas:{width:state.psd.width,height:state.psd.height},layers,sourceLayers,sourceFileName,compositeAudit,description,instructions});
       if(body.length>19*1024*1024)throw Error('AI request exceeds the planner 19 MiB limit. Reduce source size or layer count.');
       status('agentStatus','Queued with the AI animation planner…');
       const plan=await requestPlan(body);
       if(!plan?.scene||!Array.isArray(plan.scene.clips)||!plan.scene.clips.length)throw Error('AI planner returned no valid animation clips.');
+      const hasNonStaticTransform=plan.scene.clips.some(clip=>(clip.tracks||[]).some(track=>
+        ['x','y','z','rotation','scaleX','scaleY','depth'].includes(track.property)&&Array.isArray(track.keys)&&track.keys.length>=2&&
+        new Set(track.keys.map(key=>key.value)).size>1&&new Set(track.keys.map(key=>key.time)).size>1));
+      if(!hasNonStaticTransform)throw Error('AI planner returned no non-static numeric transform keyframes. ZIP export is blocked; no successful animation is claimed.');
       const exportBody=JSON.stringify({canvas:{width:state.psd.width,height:state.psd.height},scene:plan.scene,layers,sourceLayers,sourceFileName,compositeAudit});
       if(exportBody.length>19*1024*1024)throw Error('Spine export request exceeds the 19 MiB limit.');
       status('agentStatus','AI plan ready. Sending scene, source layers and exact-name map to the Spine ZIP generator…');
@@ -321,6 +325,7 @@
   $('selectAll').addEventListener('click',()=>{state.layers.forEach(x=>x.selected=x.visible);state.selected=new Set(state.layers.filter(x=>x.selected).map(x=>x.id));$('layerList').querySelectorAll('input[type=checkbox]').forEach(x=>{x.checked=x.dataset.layerId?!!state.layers.find(l=>l.id===x.dataset.layerId)?.selected:false;});$('animate').disabled=!state.prepared||($('selectionOnly').checked&&state.selected.size===0);});
   $('scale').addEventListener('input',()=>{$('scaleValue').textContent=$('scale').value+'%';if(state.file)state.prepared=false;$('animate').disabled=true;});
   $('padding').addEventListener('input',()=>{$('paddingValue').textContent=$('padding').value+' px';if(state.file)state.prepared=false;$('animate').disabled=true;});
-  ['ignoreHidden','ignoreBackground','trimWhitespace','selectionOnly'].forEach(id=>$(id).addEventListener('change',()=>{if(state.file){state.prepared=false;$('animate').disabled=true;status('leftStatus','Settings changed. Prepare the source again to apply them.');}}));
+  ['ignoreHidden','ignoreBackground','trimWhitespace'].forEach(id=>$(id).addEventListener('change',()=>{if(state.file){state.prepared=false;$('animate').disabled=true;status('leftStatus','Source-preservation settings changed. Prepare the source again to apply them.');}}));
+  $('selectionOnly').addEventListener('change',()=>{$('animate').disabled=!state.prepared||($('selectionOnly').checked&&state.selected.size===0);});
   reset();
 })();
