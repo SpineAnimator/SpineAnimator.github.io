@@ -186,13 +186,19 @@ jobs:
             'a valid Spine ZIP must be rendered to a WebM preview before completion');
           assert.equal(previewRecorderCalls,1,'the actual Spine Player canvas must be captured with MediaRecorder');
           assert.equal(previewConfig.animation,'smoke','the preview must use the ZIP animation, not a placeholder');
-          assert.equal(previewConfig.textures.length,1,'the preview must load the atlas texture page');
-          assert.ok(previewConfig.skeleton && previewConfig.atlas,'the preview must load the generated Spine skeleton and atlas');
+          assert.equal(previewConfig.skeleton,'skeleton.json','the player must resolve the skeleton through rawDataURIs');
+          assert.equal(previewConfig.atlas,'skeleton.atlas','the player must resolve the atlas through rawDataURIs');
+          assert.ok(previewConfig.rawDataURIs,'the official Spine rawDataURIs map must be supplied');
+          assert.equal(previewConfig.rawDataURIs['skeleton.json'],'blob:psd-upload-smoke');
+          assert.equal(previewConfig.rawDataURIs['skeleton.atlas'],'blob:psd-upload-smoke');
+          assert.equal(previewConfig.rawDataURIs['images/smoke-layer.png'],'blob:psd-upload-smoke',
+            'the atlas page must resolve to its local image Blob URL');
+          assert.equal(previewConfig.rawDataURIs['./images/smoke-layer.png'],'blob:psd-upload-smoke',
+            'the skeleton-relative image path must resolve locally');
           const atlasBlob=createdBlobs.find(blob=>blob.type==='text/plain');
-          assert.ok(atlasBlob,'the preview must build a browser-local atlas file');
-          const rewrittenAtlas=await atlasBlob.text();
-          assert.ok(rewrittenAtlas.includes('blob:psd-upload-smoke'),'atlas page paths must be rewritten to local texture Blob URLs');
-          assert.ok(!rewrittenAtlas.includes('images/smoke-layer.png'),'atlas must not resolve images relative to the Blob atlas URL');
+          assert.ok(atlasBlob,'the preview must provide the original atlas to the Spine runtime');
+          assert.ok((await atlasBlob.text()).includes('images/smoke-layer.png'),
+            'the original atlas page path must remain intact for rawDataURIs resolution');
           assert.deepEqual(requests.map(x=>x.method),['POST','GET','POST','POST','GET','POST']);
           assert.ok(requests[0].url.endsWith('/api/plan-async'),'PSD must queue through the async planner');
           assert.ok(requests[1].url.includes('/api/plan-status?id='),'PSD must poll the queued planner job');
@@ -359,6 +365,7 @@ jobs:
           grep -Fq 'src="./app.js' index.html || { echo "::error::Missing audited app.js reference"; exit 1; }
           grep -Fq 'function renderSpineWebmPreview' app.js || { echo "::error::Missing browser Spine WebM renderer"; exit 1; }
           grep -Fq 'captureStream(30)' app.js || { echo "::error::Missing canvas video capture"; exit 1; }
+          grep -Fq 'rawDataURIs' app.js || { echo "::error::Missing official Spine rawDataURIs asset mapping"; exit 1; }
           grep -Fq 'Download WebM preview' app.js || { echo "::error::Missing chat WebM download link"; exit 1; }
           if grep -nEi 'github_pat_|ghp_[A-Za-z0-9]{20}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|ACCESS_TOKEN|SPINE_LICENSE_KEY|CLOUDFLARE_API_TOKEN' index.html app.js Spine-Mask-Tool/index.html Spine-Mask-Tool/app.js Spine-Mask-Tool/core.js Spine-Mask-Tool/linux-api.js spine-scripts/index.html spine-scripts/app.js; then
             echo "::error::Potential private credentials in public Pages"; exit 1
@@ -437,6 +444,7 @@ jobs:
             grep -Fq 'No technical fallback ZIP was created.' "$RUNNER_TEMP/published-app.js" || return 1
             grep -Fq 'function renderSpineWebmPreview' "$RUNNER_TEMP/published-app.js" || return 1
             grep -Fq 'captureStream(30)' "$RUNNER_TEMP/published-app.js" || return 1
+            grep -Fq 'rawDataURIs' "$RUNNER_TEMP/published-app.js" || return 1
             grep -Fq 'Download WebM preview' "$RUNNER_TEMP/published-app.js" || return 1
             if grep -Fq 'function technicalFallbackPlan' "$RUNNER_TEMP/published-app.js" ||
                grep -Fq 'technicalFallback =' "$RUNNER_TEMP/published-app.js"; then
