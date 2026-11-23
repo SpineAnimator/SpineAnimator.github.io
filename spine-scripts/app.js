@@ -71,14 +71,17 @@
       for(const layer of children){
         const visible=parentVisible&&layer.hidden!==true;
         if(ignoreHidden&&!visible)continue;
-        if(ignoreBg&&(layer.name||'').toLowerCase()==='background')continue;
+        if(ignoreBg&&((layer.name||'').toLowerCase()==='background'||layer.isBackground))continue;
         if(layer.name&&/\[ignore\]/i.test(layer.name))continue;
+        const tagMatch=(layer.name||'').match(/\[(bone|slot|skin|mesh|linkedmesh|clip|overlay|merge|draworder|event)\]/i);
+        if(tagMatch)unsupported.push((layer.name||'Unnamed')+': PhotoshopToSpine tag ['+tagMatch[1]+'] is not yet mapped by the web exporter');
         if(layer.children?.length){
           rows.push({type:'group',name:layer.name||'Group',depth,visible});
           walk(layer,depth+1,visible);continue;
         }
-        if(layer.adjustment||layer.clipping||layer.blendMode&& !['normal','pass through'].includes(layer.blendMode)){
-          unsupported.push((layer.name||'Unnamed')+': '+(layer.clipping?'clipping layer':layer.adjustment?'adjustment layer':'blend mode '+layer.blendMode));continue;
+        if(layer.adjustment)continue;
+        if(layer.clipping||layer.blendMode&& !['normal','pass through'].includes(layer.blendMode)){
+          unsupported.push((layer.name||'Unnamed')+': '+(layer.clipping?'clipping layer':'blend mode '+layer.blendMode));continue;
         }
         const original=canvasOf(layer.imageData||layer.canvas||layer);
         if(!original)continue;
