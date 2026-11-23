@@ -302,7 +302,7 @@
       if(state.objectUrl)URL.revokeObjectURL(state.objectUrl);
       state.objectUrl=URL.createObjectURL(new Blob([zip],{type:'application/zip'}));
       const link=document.createElement('a');link.href=state.objectUrl;link.download=state.file.name.replace(/\.(psd|psb|png)$/i,'')+'_spine43.zip';link.click();
-      $('previewState').textContent='ZIP GENERATED';status('agentStatus','Spine ZIP generated and downloaded. Original source names are retained in the source-layer map. Not release-ready: import, render and review every clip in Spine Editor 4.3.26 before production.','success');
+      $('previewState').textContent='ZIP GENERATED';status('agentStatus','Spine ZIP generated and downloaded. Original source names are retained in source-layer-map.json. Not release-ready: import, render and review every clip in Spine Editor 4.3.26 before production.','success');
     }catch(error){status('agentStatus',error.message||String(error),'error');$('previewState').textContent='PIPELINE FAILED';}
     finally{$('processingOverlay').classList.remove('show');state.busy=false;$('animate').disabled=!state.prepared||($('selectionOnly').checked&&state.selected.size===0);}
   }
