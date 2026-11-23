@@ -1672,6 +1672,8 @@ jobs:
                 return {status:document.getElementById('status')?.textContent||'',
                   exists:!!video,readyState:video?.readyState||0,width:video?.videoWidth||0,
                   height:video?.videoHeight||0,duration:Number(video?.duration)||0,
+                  networkState:video?.networkState??null,errorCode:video?.error?.code??null,
+                  currentSrc:video?.currentSrc||'',
                   download:[...document.querySelectorAll('.chat-result-message a')]
                     .some(a=>a.textContent==='Download WebM preview')};
               });
