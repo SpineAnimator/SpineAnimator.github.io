@@ -173,7 +173,7 @@
   }
   function maskIoU(a,b){
     let intersection=0,union=0;
-    for(let i=0;i<a.length;i++){if(a[i]&&b[i])intersection++;if(a[i]||b[i])union++;}
+    for(let i=0;i<a.length;i+=4){if(a[i]&&b[i])intersection++;if(a[i]||b[i])union++;}
     return union?intersection/union:0;
   }
   function canvasFromMaskedPixels(source,sourcePixels,mask,bounds){
@@ -209,16 +209,15 @@
     const pointCount=dims[0],maskCount=dims[1],maskHeight=dims[dims.length-2],maskWidth=dims[dims.length-1],maskPixels=maskHeight*maskWidth;
     if(maskWidth!==width||maskHeight!==height)throw Error('AI mask dimensions do not match the source PNG.');
     const candidates=[];
-    for(let p=0;p<pointCount;p++){
-      let best=0,bestScore=-1;
-      for(let m=0;m<maskCount;m++){const score=Number(scores?.[p*maskCount+m]??0);if(score>bestScore){bestScore=score;best=m;}}
-      if(bestScore<.55)continue;
-      const mask=new Uint8Array(total),offset=(p*maskCount+best)*maskPixels;let area=0;
+    for(let p=0;p<pointCount;p++)for(let m=0;m<maskCount;m++){
+      const score=Number(scores?.[p*maskCount+m]??0);if(score<.55)continue;
+      const mask=new Uint8Array(total),offset=(p*maskCount+m)*maskPixels;let area=0;
       for(let i=0;i<total;i++){if(data[offset+i]&&pixels[i*4+3]>8){mask[i]=1;area++;}}
       if(area<Math.max(24,visible*.001)||(area>visible*.995&&candidates.length))continue;
       const bounds=maskBounds(mask,width,height);if(!bounds)continue;
-      if(candidates.some(c=>maskIoU(mask,c.mask)>.88))continue;
-      candidates.push({mask,score:bestScore,bounds});
+      const duplicate=candidates.findIndex(c=>maskIoU(mask,c.mask)>.88);
+      if(duplicate>=0){if(score>candidates[duplicate].score)candidates[duplicate]={mask,score,bounds};continue;}
+      candidates.push({mask,score,bounds});
     }
     if(!candidates.length)throw Error('SlimSAM did not return stable object masks for this PNG. No synthetic layers were created.');
     candidates.sort((a,b)=>a.bounds.area-b.bounds.area||b.score-a.score);
