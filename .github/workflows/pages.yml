@@ -406,8 +406,8 @@ jobs:
           console.log('MASK_TOOL_AUTO_LIGHT_FACE_PASS',faces.stats);
 
           NODE
-          git ls-files --error-unmatch .nojekyll README.md app.js index.html .github/workflows/pages.yml .github/workflows/mask-tool-agent-api.yml .github/workflows/production-ai-canary.yml .github/workflows/spine-scripts-ci.yml Spine-Mask-Tool/core.js Spine-Mask-Tool/app.js Spine-Mask-Tool/index.html Spine-Mask-Tool/linux-api.js spine-scripts/app.js spine-scripts/index.html spine-scripts/contract-smoke.mjs >/dev/null
-          test "$(git ls-files | wc -l)" -eq 15 || { echo "::error::Unsafe extra file in public Pages repository"; exit 1; }
+          git ls-files --error-unmatch .nojekyll README.md app.js index.html .github/workflows/pages.yml .github/workflows/mask-tool-agent-api.yml .github/workflows/production-ai-canary.yml .github/workflows/spine-scripts-ci.yml Spine-Mask-Tool/core.js Spine-Mask-Tool/app.js Spine-Mask-Tool/index.html Spine-Mask-Tool/linux-api.js Spine-Mask-Tool/tests/mask-executor.test.mjs spine-scripts/app.js spine-scripts/index.html spine-scripts/contract-smoke.mjs >/dev/null
+          test "$(git ls-files | wc -l)" -eq 16 || { echo "::error::Unsafe extra file in public Pages repository"; exit 1; }
           test -s index.html && test -s app.js
           grep -Fq '<span class="version">v.1.4.13</span>' index.html || { echo "::error::Expected website v1.4.13"; exit 1; }
           grep -Fq 'src="./app.js' index.html || { echo "::error::Missing audited app.js reference"; exit 1; }
