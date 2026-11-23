@@ -1661,6 +1661,7 @@ jobs:
               const status=document.getElementById('status')?.textContent||'';
               return status.includes('ZIP ready')||status.startsWith('Generation failed [');
             },null,{timeout:21*60*1000});
+            // Read DOM state through Playwright's page context; Node has no global document.
             if((await page.evaluate(()=>document.getElementById('status')?.textContent||'')).includes('ZIP ready')){
               await page.waitForFunction(()=>{
                 const status=document.getElementById('status')?.textContent||'';
