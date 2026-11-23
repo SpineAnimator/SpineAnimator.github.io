@@ -173,10 +173,15 @@
         state.psd=parsed;state.layers=parsed.layers;state.selected=new Set(parsed.layers.map(x=>x.id));
         drawPreview(parsed.composite);renderLayers(parsed.rows);
         if(parsed.unsupported.length){$('layerWarning').textContent='Unsupported Photoshop operations were detected. They are not silently discarded: '+parsed.unsupported.slice(0,8).join(' · ');$('layerWarning').classList.add('show');}
-        state.prepared=true;$('animate').disabled=false;
-        $('previewState').textContent='PSD PARSED';
-        status('leftStatus','PSD layer tree parsed. '+parsed.layers.length+' raster layers are available.','success');
-        status('agentStatus','Source ready. Describe the motion and send the selected source layers to the animation agents.');
+        state.prepared=parsed.unsupported.length===0;$('animate').disabled=!state.prepared;
+        $('previewState').textContent=state.prepared?'PSD PARSED':'PSD NEEDS REVIEW';
+        if(state.prepared){
+          status('leftStatus','PSD layer tree parsed. '+parsed.layers.length+' raster layers are available.','success');
+          status('agentStatus','Source ready. Describe the motion and send the selected source layers to the animation agents.');
+        }else{
+          status('leftStatus','PSD parsed, but unsupported Photoshop operations must be resolved before export.','error');
+          status('agentStatus','AI export is locked until unsupported Photoshop operations are mapped.','error');
+        }
       }
     }catch(error){status('leftStatus',error.message||String(error),'error');$('previewState').textContent='PREPARE FAILED';}
     finally{setBusy(false);$('animate').disabled=!state.prepared||($('selectionOnly').checked&&state.selected.size===0);}
