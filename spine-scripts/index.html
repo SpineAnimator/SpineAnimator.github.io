@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="Browser-based PSD/PSB preparation and AI-assisted Spine 4.3 project pipeline.">
+<title>GitHub + Photoshop`2Spine — Spine Animator</title>
+<style>
+:root{color-scheme:dark;font-family:"IBM Plex Sans",Inter,ui-sans-serif,system-ui,sans-serif;--bg:#111112;--panel:#19191b;--panel2:#202023;--line:#303034;--muted:#929297;--text:#f1f1f2;--orange:#ff741c;--orange2:#ff9a4b;--danger:#e28d83;--green:#86c79b}
+*{box-sizing:border-box}html,body{margin:0;min-height:100%;background:var(--bg);color:var(--text)}body{min-height:100vh;background-image:radial-gradient(ellipse at 90% 0%,#ff741c12,transparent 38%)}
+button,input,select,textarea{font:inherit}button{cursor:pointer}.app{min-height:100vh;display:flex;flex-direction:column}
+.topbar{height:66px;display:flex;align-items:center;justify-content:space-between;padding:0 26px;border-bottom:1px solid var(--line);background:#111112eF;position:sticky;top:0;z-index:5;backdrop-filter:blur(12px)}
+.brand{display:flex;align-items:center;gap:12px;min-width:0}.brand-mark{width:30px;height:30px;border:1px solid #5b3a26;display:grid;place-items:center;color:var(--orange);font-weight:800;font-size:13px;transform:rotate(45deg)}.brand-mark span{transform:rotate(-45deg)}.brand-name{font-size:14px;font-weight:700;letter-spacing:.045em;white-space:nowrap}.brand-name em{font-style:normal;color:var(--orange)}.brand-sub{font-size:10px;letter-spacing:.14em;color:var(--muted);margin-top:2px}.top-actions{display:flex;align-items:center;gap:12px}.pill{border:1px solid var(--line);padding:7px 10px;font-size:11px;color:var(--muted);letter-spacing:.06em}.pill strong{color:var(--orange);font-weight:600}
+main{flex:1;min-height:0;padding:20px 22px 14px}.intro{display:flex;align-items:end;justify-content:space-between;gap:20px;margin:0 auto 16px;max-width:1700px}.eyebrow{font-size:10px;letter-spacing:.18em;text-transform:uppercase;color:var(--orange);margin-bottom:5px}.intro h1{font-size:21px;line-height:1.2;font-weight:600;letter-spacing:-.025em;margin:0}.intro p{font-size:12px;color:var(--muted);margin:5px 0 0}.version{font-size:11px;color:var(--muted);white-space:nowrap}
+.workspace{max-width:1700px;margin:0 auto;display:grid;grid-template-columns:minmax(240px,25fr) minmax(0,0fr) minmax(0,0fr);gap:0;min-height:calc(100vh - 180px);transition:grid-template-columns .55s cubic-bezier(.2,.75,.2,1);align-items:stretch}
+.workspace.has-file{grid-template-columns:minmax(245px,25fr) minmax(260px,25fr) minmax(340px,50fr);gap:12px}
+.panel{min-width:0;min-height:540px;background:var(--panel);border:1px solid var(--line);display:flex;flex-direction:column;overflow:hidden;position:relative}
+.panel.hidden-panel{display:none}.workspace.has-file .panel.hidden-panel{display:flex;animation:panelIn .48s both}@keyframes panelIn{from{opacity:0;transform:translateX(16px)}to{opacity:1;transform:translateX(0)}}
+.panel-head{height:48px;min-height:48px;padding:0 15px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--line);font-size:12px;font-weight:600;letter-spacing:.04em}.panel-head small{font-size:10px;font-weight:400;color:var(--muted);letter-spacing:0}.panel-body{padding:15px;display:flex;flex-direction:column;gap:14px;min-height:0;flex:1}
+.dropzone{min-height:190px;border:1px dashed #55555a;background:#151517;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:18px;position:relative;transition:.2s;cursor:pointer}.dropzone:hover,.dropzone.drag{border-color:var(--orange);background:#ff741c0b}.upload-icon{width:40px;height:40px;border:1px solid #4a4a4e;display:grid;place-items:center;color:var(--orange);font-size:20px;margin-bottom:12px}.dropzone strong{font-size:13px;font-weight:600}.dropzone p{font-size:11px;line-height:1.55;color:var(--muted);max-width:250px;margin:7px 0 0}.dropzone input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.file-info{border:1px solid var(--line);background:#141416;padding:11px;display:none}.file-info.show{display:block}.file-row{display:flex;align-items:center;justify-content:space-between;gap:8px}.filename{font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.filetype{font-size:9px;color:var(--orange);border:1px solid #5a3925;padding:3px 6px;white-space:nowrap}.file-meta{font-size:10px;color:var(--muted);margin-top:6px}
+.settings{border-top:1px solid var(--line);padding-top:12px}.section-label{font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);margin-bottom:10px}.checks{display:grid;grid-template-columns:1fr 1fr;gap:9px 8px}.check{display:flex;align-items:center;gap:7px;font-size:10px;color:#c3c3c7;cursor:pointer}.check input{accent-color:var(--orange);margin:0}.range-row{display:grid;grid-template-columns:1fr 64px;gap:9px;align-items:center;margin-top:11px}.range-row label{font-size:10px;color:var(--muted)}.range-row input{width:100%;accent-color:var(--orange)}.range-row output{font-size:10px;text-align:right;color:#ddd}
+.action{border:1px solid var(--orange);background:var(--orange);color:#17110d;padding:11px 14px;font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;transition:.2s}.action:hover:not(:disabled){background:var(--orange2);border-color:var(--orange2)}.action:disabled{opacity:.38;cursor:not-allowed}.action.secondary{background:transparent;color:var(--text);border-color:var(--line)}.action.secondary:hover:not(:disabled){border-color:var(--orange);color:var(--orange)}.button-row{display:flex;gap:8px}.button-row>*{flex:1}
+.layer-toolbar{display:flex;align-items:center;justify-content:space-between;font-size:10px;color:var(--muted)}.layer-toolbar button{border:0;background:none;color:var(--orange);font-size:10px;padding:0}.layer-list{flex:1;min-height:140px;overflow:auto;border:1px solid var(--line);background:#141416;padding:6px}.layer-item{display:flex;align-items:center;gap:8px;min-height:32px;padding:5px 7px;border-bottom:1px solid #252528;font-size:11px}.layer-item:last-child{border:0}.layer-item:hover{background:#242427}.layer-item input{accent-color:var(--orange);margin:0}.layer-icon{color:#b8b8bd;font-size:10px;width:15px;text-align:center}.layer-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}.layer-dims{font-size:9px;color:#77777d;white-space:nowrap}.layer-group{color:#d2a16f}.layer-warning{font-size:10px;line-height:1.5;color:#d8b18d;background:#241d17;border:1px solid #57402c;padding:9px;display:none}.layer-warning.show{display:block}
+.preview-area{flex:1;min-height:0;position:relative;display:grid;place-items:center;overflow:hidden;background-color:#171719;background-image:linear-gradient(45deg,#202023 25%,transparent 25%),linear-gradient(-45deg,#202023 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#202023 75%),linear-gradient(-45deg,transparent 75%,#202023 75%);background-size:22px 22px;background-position:0 0,0 11px,11px -11px,-11px 0}.preview-area canvas{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;display:block}.preview-empty{font-size:11px;color:#77777d;text-align:center;padding:24px}.preview-footer{height:38px;min-height:38px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 13px;border-top:1px solid var(--line);font-size:10px;color:var(--muted)}.preview-footer strong{color:#ddd;font-weight:500}
+.processing-overlay{position:absolute;inset:0;background:#080809b8;display:none;align-items:center;justify-content:center;flex-direction:column;gap:14px;z-index:2;text-align:center;backdrop-filter:blur(1px)}.processing-overlay.show{display:flex}.spinner{width:54px;height:54px;border:2px solid #ffffff24;border-top-color:var(--orange);border-right-color:var(--orange);border-radius:50%;animation:spin .8s linear infinite;box-shadow:0 0 28px #ff741c35}@keyframes spin{to{transform:rotate(360deg)}}.processing-title{font-size:13px;color:#fff;font-weight:600;letter-spacing:.1em}.processing-sub{font-size:10px;color:#d0c5bd;max-width:260px;line-height:1.5}
+.status{font-size:10px;line-height:1.5;color:var(--muted);min-height:28px;overflow-wrap:anywhere}.status.error{color:var(--danger)}.status.success{color:var(--green)}.progress{height:2px;background:#333;overflow:hidden;display:none}.progress.show{display:block}.progress i{display:block;height:100%;width:35%;background:var(--orange);animation:progress 1.5s ease-in-out infinite}@keyframes progress{0%{transform:translateX(-110%)}100%{transform:translateX(310%)}}
+footer{padding:10px 24px 14px;text-align:center;color:#626268;font-size:9px;letter-spacing:.12em}
+@media(max-width:1050px){.workspace.has-file{grid-template-columns:minmax(210px,28fr) minmax(220px,32fr) minmax(260px,40fr)}main{padding:14px}.panel-body{padding:11px}}
+@media(max-width:760px){.topbar{padding:0 14px;height:58px}.brand-name{font-size:12px}.top-actions .pill{display:none}main{padding:12px}.intro{align-items:start}.intro h1{font-size:18px}.workspace,.workspace.has-file{display:flex;flex-direction:column;min-height:0;gap:10px}.panel{min-height:420px}.workspace:not(.has-file) .panel{min-height:calc(100vh - 190px)}.workspace.has-file .panel{min-height:360px}.workspace.has-file .panel.hidden-panel{display:flex}.panel:first-child{min-height:520px}.checks{grid-template-columns:1fr 1fr}}
+</style>
+<script defer src="https://cdn.jsdelivr.net/npm/ag-psd@14.5.2/dist/bundle.js"></script>
+<script defer src="./app.js?v=20261123a"></script>
+</head>
+<body>
+<div class="app">
+<header class="topbar">
+  <div class="brand"><div class="brand-mark"><span>2S</span></div><div><div class="brand-name">GitHub + Photoshop<em>`2Spine</em></div><div class="brand-sub">SPINE ANIMATOR · WEB TOOLCHAIN</div></div></div>
+  <div class="top-actions"><span class="pill"><strong>PSD / PSB</strong> → Spine 4.3+</span><span class="pill">AI ANIMATION PIPELINE</span></div>
+</header>
+<main>
+  <div class="intro"><div><div class="eyebrow">Independent web utility</div><h1>Photoshop layers → Spine animation</h1><p>Prepare artwork, inspect the layer tree and send a verified source to the animation agents.</p></div><div class="version">WEB EXPORTER · v1.0</div></div>
+  <section class="workspace" id="workspace">
+    <section class="panel" aria-label="Source file and settings">
+      <div class="panel-head">01 / SOURCE FILE <small>PSD · PSB · PNG</small></div>
+      <div class="panel-body">
+        <label class="dropzone" id="dropzone">
+          <input id="sourceFile" type="file" accept=".psd,.psb,.png,image/vnd.adobe.photoshop,image/png">
+          <span class="upload-icon">＋</span><strong>Choose PSD / PSB / PNG</strong>
+          <p>Drop your artwork here or click to browse. The source file stays in this browser until you start a server-side AI task.</p>
+        </label>
+        <div class="file-info" id="fileInfo"><div class="file-row"><span class="filename" id="fileName"></span><span class="filetype" id="fileType"></span></div><div class="file-meta" id="fileMeta"></div></div>
+        <div class="settings">
+          <div class="section-label">PhotoshopToSpine · export rules</div>
+          <div class="checks">
+            <label class="check"><input id="ignoreHidden" type="checkbox" checked> Ignore hidden layers</label>
+            <label class="check"><input id="ignoreBackground" type="checkbox" checked> Ignore Background</label>
+            <label class="check"><input id="trimWhitespace" type="checkbox" checked> Trim whitespace</label>
+            <label class="check"><input id="writeJson" type="checkbox" checked> Spine JSON</label>
+            <label class="check"><input id="writeTemplate" type="checkbox"> Template data</label>
+            <label class="check"><input id="selectionOnly" type="checkbox"> Selected layers only</label>
+          </div>
+          <div class="range-row"><label for="scale">Image scale</label><input id="scale" type="range" min="1" max="400" value="100"><output id="scaleValue">100%</output></div>
+          <div class="range-row"><label for="padding">Trim padding</label><input id="padding" type="range" min="0" max="4" value="1"><output id="paddingValue">1 px</output></div>
+        </div>
+        <div class="button-row"><button class="action secondary" id="reset" type="button" disabled>Reset</button><button class="action" id="prepare" type="button" disabled>Prepare source</button></div>
+        <div class="progress" id="leftProgress"><i></i></div><div class="status" id="leftStatus" aria-live="polite">Waiting for a source file.</div>
+      </div>
+    </section>
+    <section class="panel hidden-panel" id="layersPanel" aria-label="PSD layers">
+      <div class="panel-head">02 / LAYER TREE <small id="layerCount">0 layers</small></div>
+      <div class="panel-body">
+        <div class="layer-toolbar"><span>Visible source layers in draw order</span><button id="selectAll" type="button">Select all</button></div>
+        <div class="layer-list" id="layerList"><div class="preview-empty">Your PSD layer structure will appear here.</div></div>
+        <div class="layer-warning" id="layerWarning"></div>
+        <div class="section-label">AI animation request</div>
+        <textarea id="motion" rows="3" placeholder="Describe the motion, timing and acting you want the AI animation agents to create…" style="resize:vertical;width:100%;background:#111113;color:#eee;border:1px solid var(--line);padding:10px;font-size:11px;line-height:1.5"></textarea>
+        <button class="action" id="animate" type="button" disabled>Send to animation agents</button>
+        <div class="status" id="agentStatus" aria-live="polite">Prepare a PSD source to enable the animation pipeline.</div>
+      </div>
+    </section>
+    <section class="panel hidden-panel" id="previewPanel" aria-label="Artwork preview">
+      <div class="panel-head">03 / ARTWORK PREVIEW <small id="previewDimensions">No image</small></div>
+      <div class="preview-area" id="previewArea">
+        <div class="preview-empty" id="previewEmpty">The selected artwork appears here.</div>
+        <canvas id="previewCanvas" hidden></canvas>
+        <div class="processing-overlay" id="processingOverlay"><div class="spinner"></div><div class="processing-title" id="processingTitle">PSD PREPARE</div><div class="processing-sub" id="processingSub">Inspecting artwork and preparing the layer structure.</div></div>
+      </div>
+      <div class="preview-footer"><span id="previewName">No source loaded</span><strong id="previewState">IDLE</strong></div>
+    </section>
+  </section>
+</main>
+<footer>SPINE ANIMATOR · GITHUB + PHOTOSHOP`2SPINE · PRIVATE SOURCE PROCESSING</footer>
+</div>
+</body>
+</html>
