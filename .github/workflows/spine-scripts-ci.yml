@@ -1,0 +1,36 @@
+name: Spine Scripts static contract
+on:
+  push:
+    branches: ['**']
+    paths:
+      - 'spine-scripts/**'
+      - '.github/workflows/spine-scripts-ci.yml'
+  pull_request:
+    paths:
+      - 'spine-scripts/**'
+      - '.github/workflows/spine-scripts-ci.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: spine-scripts-static-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  static-contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Check JavaScript syntax
+        run: node --check spine-scripts/app.js
+      - name: Verify parser provenance and source-preservation contract
+        run: node spine-scripts/contract-smoke.mjs
+      - name: Check HTML has no escaped-newline artifacts
+        run: |
+          if grep -nF '\\n' spine-scripts/index.html; then
+            echo 'Unexpected literal backslash-n in HTML' >&2
+            exit 1
+          fi
