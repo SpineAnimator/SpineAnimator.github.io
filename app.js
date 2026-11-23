@@ -929,8 +929,19 @@
         extension === 'webp' ? 'image/webp' : 'image/png';
       return objectUrl(files.get(file), mime);
     });
+    let pageIndex = 0;
+    const rewrittenAtlasText = atlasText.split(/\r?\n/).map(line => {
+      if (line && !/^\s/.test(line) && /\.(png|jpe?g|webp)$/i.test(line.trim())) {
+        const url = textureUrls[pageIndex++];
+        if (!url) throw Error('Spine atlas texture mapping is incomplete');
+        return url;
+      }
+      return line;
+    }).join('\n');
+    if (pageIndex !== textureUrls.length)
+      throw Error('Spine atlas texture mapping does not match its page count');
     const skeletonUrl = objectUrl(skeletonBytes, 'application/json');
-    const atlasUrl = objectUrl(atlasBytes, 'text/plain');
+    const atlasUrl = objectUrl(new TextEncoder().encode(rewrittenAtlasText), 'text/plain');
     const container = document.createElement('div');
     container.id = 'sa-spine-render-' + Date.now() + '-' + Math.random().toString(36).slice(2);
     container.style.cssText = 'position:fixed;left:-10000px;top:0;width:640px;height:360px;overflow:hidden;pointer-events:none;z-index:-1;';
@@ -1035,8 +1046,8 @@
       await new Promise(resolve => setTimeout(resolve, 100));
       stream = canvas.captureStream(30);
       const mimeCandidates = ['video/webm;codecs=vp9', 'video/webm;codecs=vp8', 'video/webm'];
-      const mimeType = mimeCandidates.find(type =>
-        typeof Recorder.isTypeSupported !== 'function' || Recorder.isTypeSupported(type)) || '';
+      const mimeType = typeof Recorder.isTypeSupported === 'function'
+        ? mimeCandidates.find(type => Recorder.isTypeSupported(type)) || '' : '';
       const recorder = mimeType ? new Recorder(stream, { mimeType }) : new Recorder(stream);
       const blob = await new Promise((resolve, reject) => {
         const chunks = [];
