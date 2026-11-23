@@ -226,12 +226,13 @@
     for (let i = 1; i < ranges.length; i++)
       if (ranges[i][0] < ranges[i - 1][1])
         throw Error('ZIP local entries overlap: ' + ranges[i][2]);
-    for (const name of ['skeleton.json', 'skeleton.atlas', 'manifest.json'])
+    for (const name of ['skeleton.json', 'skeleton.atlas', 'manifest.json', 'source-layer-map.json'])
       if (!files.has(name)) throw Error('ZIP is missing required file: ' + name);
     if (!source || !Array.isArray(source.layers) || !Array.isArray(plannedClips) || !plannedClips.length)
       throw Error('Source layer inventory or planned clip list is missing.');
     const skeleton = JSON.parse(decoder.decode(files.get('skeleton.json')));
     const manifest = JSON.parse(decoder.decode(files.get('manifest.json')));
+    const sourceLayerMap = JSON.parse(decoder.decode(files.get('source-layer-map.json')));
     if (!skeleton.skeleton || !/^4\.3(?:\.|$)/.test(String(skeleton.skeleton.spine || '')) ||
         !Array.isArray(skeleton.bones) || !skeleton.bones.length ||
         !Array.isArray(skeleton.slots) || !skeleton.slots.length ||
@@ -242,6 +243,10 @@
         manifest.validation?.setupPreserved !== true ||
         manifest.validation?.drawOrderPreserved !== true ||
         manifest.validation?.frameZeroPreserved !== true ||
+        manifest.sourceLayerNamesPreserved !== true ||
+        !Array.isArray(sourceLayerMap.sourceLayers) || sourceLayerMap.sourceLayers.length !== source.layers.length ||
+        sourceLayerMap.sourceLayers.some((layer,index) => !layer || layer.id !== source.layers[index].id ||
+          layer.sourceName !== source.layers[index].sourceName || layer.sourceIndex !== index) ||
         manifest.renderEvidence?.status !== 'not-rendered' || manifest.renderEvidence?.frameCount !== 0 ||
         manifest.artisticApproval !== 'pending' || manifest.releaseReady !== false ||
         manifest.nativeSpineEditorFile !== false)
@@ -769,6 +774,18 @@
     else return null;
     return c;
   }
+  function createLayerIdentity(layerName, usedIds) {
+    const sourceName = typeof layerName === 'string' ? layerName : String(layerName ?? 'layer');
+    if (sourceName.length > 512) throw Error('PSD source layer names must not exceed 512 characters');
+    let id = String(sourceName || 'layer').replace(/[^\w.-]/g, '_').slice(0,70) || 'layer';
+    const base = id; let suffix = 1;
+    while (usedIds.has(id)) id = base + '_' + suffix++;
+    usedIds.add(id);
+    return { id, sourceName };
+  }
+  if (window.__SA_TEST_MODE__ === true)
+    window.__SA_TEST_HOOKS__ = Object.freeze({ createLayerIdentity });
+
   function parse(buffer) {
     const signature = new Uint8Array(buffer, 0, Math.min(buffer.byteLength, 4));
     if (signature.length !== 4 || String.fromCharCode(...signature) !== '8BPS')
@@ -809,12 +826,10 @@
         canvas.width = original.width; canvas.height = original.height;
         const context = canvas.getContext('2d');
         context.globalAlpha = alpha; context.drawImage(original, 0, 0);
-        let id = String(layer.name || 'layer').replace(/[^\w.-]/g, '_').slice(0,70) || 'layer';
-        const base = id; let suffix = 1;
-        while (names.has(id)) id = base + '_' + suffix++;
-        names.add(id);
+        const { id, sourceName } = createLayerIdentity(layer.name, names);
+        const sourceIndex = layers.length;
         const layerImage = canvas.toDataURL('image/png');
-        layers.push({ id, image: layerImage,
+        layers.push({ id, sourceName, sourceIndex, image: layerImage,
           bounds: { x: Number(layer.left || 0), y: Number(layer.top || 0),
             width: canvas.width, height: canvas.height } });
         sheetItems.push({ id, canvas });
@@ -1143,7 +1158,10 @@
           '. No technical fallback ZIP was created.');
       }
       const exportBody = JSON.stringify({ canvas: { width: source.width, height: source.height },
-        scene: plan.scene, layers: source.layers });
+        scene: plan.scene, layers: source.layers,
+        sourceLayers: source.layers.map(layer => ({ id: layer.id, sourceName: layer.sourceName,
+          sourceIndex: layer.sourceIndex, kind: 'raster', visible: true, opacity: 255,
+          bounds: layer.bounds })) });
       if (exportBody.length > 19 * 1024 * 1024) throw Error('Export payload is too large');
       stage = 'Spine ZIP export';
       message('Exporting Spine ZIP…');
