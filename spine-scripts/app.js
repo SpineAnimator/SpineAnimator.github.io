@@ -140,6 +140,8 @@
     $('layerList').innerHTML='<div class="preview-empty">Preparing layer structure…</div>';
     $('layerWarning').classList.remove('show');status('leftStatus','Source selected. Click Prepare source.');status('agentStatus','Waiting for source preparation.');
     $('previewEmpty').hidden=false;$('previewCanvas').hidden=true;
+    // Opening a source immediately expands the workspace and starts its preparation.
+    prepare();
   }
   async function prepare(){
     if(!state.file||state.busy)return;
