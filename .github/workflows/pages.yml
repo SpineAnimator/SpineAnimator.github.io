@@ -513,12 +513,14 @@ jobs:
               await route.fulfill({status:200,contentType:'application/zip',body:zip});
             });
             await page.locator('#motion').fill('Subtle breathing and a gentle head turn; preserve the setup pose.');
-            const zipWait=page.waitForEvent('download');
+            const zipWait=page.waitForEvent('download').then(download=>({download}),error=>({error}));
             await page.locator('#animate').click();
             await page.waitForFunction(()=>['ZIP READY','PIPELINE FAILED'].includes(document.querySelector('#previewState')?.textContent),{timeout:60000});
-            const handoff=await page.evaluate(()=>document.querySelector('#previewState')?.textContent);
-            assert.equal(handoff,'ZIP READY','PNG masks must flow through the animation planner and Spine exporter');
-            const zipDownload=await zipWait,zipPath=await zipDownload.path(),zipBytes=await fs.readFile(zipPath);
+            const handoff=await page.evaluate(()=>({state:document.querySelector('#previewState')?.textContent,
+              status:document.querySelector('#agentStatus')?.textContent}));
+            assert.equal(handoff.state,'ZIP READY','PNG masks must flow through the animation planner and Spine exporter: '+JSON.stringify(handoff));
+            const downloadResult=await zipWait;if(downloadResult.error)throw downloadResult.error;
+            const zipDownload=downloadResult.download,zipPath=await zipDownload.path(),zipBytes=await fs.readFile(zipPath);
             assert.deepEqual([...zipBytes.subarray(0,4)],[0x50,0x4b,0x03,0x04],'Spine ZIP handoff must download');
             assert.ok(plannerPayload?.layers?.length>0,'AI planner must receive transparent PNG masks');
             assert.ok(exportPayload?.layers?.length>0,'Spine generator must receive the same mask layers');
