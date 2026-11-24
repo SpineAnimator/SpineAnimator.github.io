@@ -1658,6 +1658,7 @@ jobs:
       # Retry real PSD against planner-v2.5 after optional contact-sheet validation was made non-fatal.
       # Explicitly opt-in via [prod-psd-e2e]: one real 38-layer PSD request, original-canvas fidelity, motion-error key reduction and 50k key-budget ZIP validation.
       # [prod-psd-e2e] Also require a real decoded Spine 4.3 WebM preview from the production planner ZIP.
+      # [source-layer-map-e2e] Verify duplicate original names and unique technical IDs against the live exporter.
       - name: Production clgb71 AI planner and Spine ZIP E2E (single bounded request)
         if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[prod-psd-e2e]') }}
         timeout-minutes: 22
