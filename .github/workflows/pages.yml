@@ -1887,14 +1887,13 @@ jobs:
           export CHROME_PATH="$(command -v google-chrome-stable || command -v google-chrome || command -v chromium || true)"
           node "$RUNNER_TEMP/main-psd-smoke/production.mjs"
 
-      - name: Upload production clgb71 ZIP and diagnostics
+      - name: Upload sanitized production clgb71 diagnostics only
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: production-clgb71-e2e
-          path: |
-            ${{ runner.temp }}/main-psd-smoke/production-clgb71.zip
-            ${{ runner.temp }}/main-psd-smoke/production-clgb71-diagnostics.json
+          name: production-clgb71-diagnostics
+          # The ZIP contains source-derived PSD layer pixels. Never retain it in this public repository.
+          path: ${{ runner.temp }}/main-psd-smoke/production-clgb71-diagnostics.json
           if-no-files-found: ignore
           retention-days: 7
 
