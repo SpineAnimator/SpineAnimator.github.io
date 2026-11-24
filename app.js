@@ -684,6 +684,8 @@
       throw Error('Provide a public HTTPS PSD or supported file-share link');
     if (['localhost', '127.0.0.1', '[::1]'].includes(u.hostname))
       throw Error('Private network URLs are not supported');
+    if (u.hostname === 'sendfiles.in')
+      throw Error('SendFiles.in is a live WebRTC P2P session, not a stored download. Keep the sender online and transfer the PSD into a file first.');
     if (['drive.google.com', 'drive.usercontent.google.com'].includes(u.hostname)) {
       const fileLink = u.hostname === 'drive.google.com' &&
         /^\/file\/d\/[A-Za-z0-9_-]{10,128}(?:\/(?:view|preview|edit))?\/?$/.test(u.pathname);
