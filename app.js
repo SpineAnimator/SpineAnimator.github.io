@@ -98,7 +98,8 @@
     }
     if (!start?.jobId) throw lastError || Error('AI planner did not accept the job');
 
-    const deadline = Date.now() + 20 * 60 * 1000 + 30 * 1000;
+    const planningStartedAt = Date.now();
+    const deadline = planningStartedAt + 20 * 60 * 1000 + 30 * 1000;
     let lastStatusError = null;
     while (Date.now() < deadline) {
       await new Promise(resolve => setTimeout(resolve, 2500));
@@ -117,7 +118,7 @@
           throw Error(status.error?.message || 'AI planning workflow failed');
         if (!['queued', 'running', 'pending', 'waiting', 'executing'].includes(status?.status))
           throw Error('AI planner returned an unknown job state: ' + String(status?.status || 'missing'));
-        message('AI planning… ' + Math.floor((Date.now() - (deadline - 9 * 60 * 1000)) / 1000) + 's');
+        message('AI planning… ' + Math.floor((Date.now() - planningStartedAt) / 1000) + 's');
       } catch (error) {
         if (!isTransientPlannerError(error)) throw error;
         lastStatusError = error;
