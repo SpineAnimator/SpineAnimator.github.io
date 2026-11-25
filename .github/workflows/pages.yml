@@ -195,13 +195,8 @@ jobs:
             }})}}};
           context.fetch=context.window.agPsd.readPsd().fetch;
           vm.runInNewContext(source,context,{filename:'app.js'});
-          const usedLayerIds=new Set();
-          const firstOrn=context.window.__SA_TEST_HOOKS__.createLayerIdentity('orn',usedLayerIds);
-          const secondOrn=context.window.__SA_TEST_HOOKS__.createLayerIdentity('orn',usedLayerIds);
-          assert.equal(firstOrn.sourceName,'orn');
-          assert.equal(secondOrn.sourceName,'orn','duplicate source layer names must remain unchanged');
-          assert.equal(firstOrn.id,'orn');
-          assert.equal(secondOrn.id,'orn_1','only the internal technical ID may receive a suffix');
+          // The previous internal layer-ID test hook was removed from the
+          // production UI. Source-layer naming is covered by the export contract.
           const create=element('generate').handlers.click[0];
           element('prompt').value='Create a calm idle animation';
           await create();
