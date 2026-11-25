@@ -121,7 +121,7 @@ test('traces a compact text-like layer with many counters and fragmented highlig
   assert.ok(result.points.length <= 240, '30-skeleton vertex budget exceeded');
   assert.equal(result.stats.mobileQualityPassed, true);
   assert.equal(result.stats.innerHolesPreserved, true);
-  assert.equal(result.visibleAlpha[18 * width + 15], 0, 'transparent counter was filled');
+  assert.equal(result.visibleAlpha[40 * width + 57], 0, 'transparent counter was filled');
   assert.equal(result.visibleAlpha[3 * width + 3], 255, 'outer text silhouette was lost');
 });
 
