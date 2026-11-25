@@ -1,4 +1,4 @@
-import { imageMask, availableRegions, exportJson, exportLocalEditorMask, exportLocalEditorMultiMask, maskVertices } from "./core.js?v=wild-txt-highlight-fallback-20261125b";
+import { imageMask, availableRegions, exportJson, exportLocalEditorMask, exportLocalEditorMultiMask, maskVertices, normalizeSpineImagePath } from "./core.js?v=portable-spine-image-path-20261125a";
 import { submitSpineProject, pollSpineResult } from "./linux-api.js?v=20261119";
 
 const $ = id => document.getElementById(id);
@@ -776,7 +776,8 @@ function nativeStatus(text,error=false){
 async function buildPreservedSpineProjectZip(){
   if(!state.result?.json)throw Error("Generate a mask first.");
   const base=(state.base||"spine").replace(/[^a-z0-9_-]/gi,"_").slice(0,80)||"spine";
-  const output=[[base+"-mask.json",bytes(JSON.stringify(state.result.json,null,2))]];
+  const portableJson=normalizeSpineImagePath(state.result.json);
+  const output=[[base+"-mask.json",bytes(JSON.stringify(portableJson,null,2))]];
   const seen=new Set([output[0][0].toLowerCase()]);
   let total=output[0][1].length;
   function safeImagePath(file){
@@ -1145,7 +1146,8 @@ async function writeToEditor(epoch){
     }
     // Send only the modified Spine JSON. The original region and its PNG
     // remain untouched. One clipping attachment clips the selected target.
-    const encoded=new TextEncoder().encode(JSON.stringify(merged.json));
+    const portableJson=normalizeSpineImagePath(merged.json);
+    const encoded=new TextEncoder().encode(JSON.stringify(portableJson));
     if(epoch!==bridgeWriteEpoch||session!==state.bridge?.session)return;
     bridgeStatus("Saving new Spine project with one native clipping mask…");
     const started=await requestBridge("begin_result",{session,

@@ -564,6 +564,14 @@ function intersects(points) {
   }
   return false;
 }
+// Portable Spine projects keep texture references relative to the project root.
+// The source may have been authored on another machine with an absolute path.
+export function normalizeSpineImagePath(original) {
+  const json = JSON.parse(JSON.stringify(original));
+  if (json?.skeleton && typeof json.skeleton === "object") json.skeleton.images = "./images/";
+  return json;
+}
+
 export function availableRegions(json) {
   const result = [];
   if (!json || !Array.isArray(json.slots)) return result;

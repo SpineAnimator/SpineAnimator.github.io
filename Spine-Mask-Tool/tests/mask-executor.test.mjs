@@ -3,9 +3,23 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const source = fs.readFileSync(new URL('../core.js', import.meta.url), 'utf8');
-const { imageMask, availableRegions, exportJson } = await import(
+const { imageMask, availableRegions, exportJson, normalizeSpineImagePath } = await import(
   'data:text/javascript;base64,' + Buffer.from(source).toString('base64')
 );
+
+test('normalizes absolute Spine texture paths for portable project ZIPs without mutating source JSON', () => {
+  const original = {
+    skeleton: { spine: '4.3.26', images: '/Users/imac/Data/Animation/DS/sym_crown/images/' },
+    bones: [{ name: 'root' }],
+    slots: [{ name: 'wild_txt', bone: 'root', attachment: 'wild_txt' }],
+    skins: { default: { wild_txt: { wild_txt: { type: 'region', path: 'wild_txt' } } } }
+  };
+  const before = JSON.stringify(original);
+  const portable = normalizeSpineImagePath(original);
+  assert.equal(portable.skeleton.images, './images/');
+  assert.equal(JSON.stringify(original), before, 'source skeleton was mutated');
+  assert.notEqual(portable, original);
+});
 
 test('builds one valid clipping polygon from disconnected artwork with counters', () => {
   const width = 112, height = 56;
