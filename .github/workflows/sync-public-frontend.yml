@@ -53,7 +53,11 @@ jobs:
             Spine-Mask-Tool/linux-api.js
           )
           for file in "${required[@]}"; do
-            test -s "$file" || { echo "::error::Missing public frontend file: $file"; exit 1; }
+            if [[ "$file" == ".nojekyll" ]]; then
+              test -f "$file" || { echo "::error::Missing public frontend marker: $file"; exit 1; }
+            else
+              test -s "$file" || { echo "::error::Missing public frontend file: $file"; exit 1; }
+            fi
             git ls-files --error-unmatch "$file" >/dev/null
           done
           test -f .nojekyll
@@ -63,10 +67,24 @@ jobs:
             echo "::error::Possible credential material detected in public frontend"
             exit 1
           fi
-          if grep -nE '[\u0400-\u04FF]' Spine-Mask-Tool/index.html Spine-Mask-Tool/app.js Spine-Mask-Tool/core.js Spine-Mask-Tool/linux-api.js; then
-            echo "::error::Unexpected non-English source text in the public mask tool"
-            exit 1
-          fi
+          node --input-type=module <<'LANGCHECK'
+          import fs from 'node:fs';
+          const files = [
+            'Spine-Mask-Tool/index.html',
+            'Spine-Mask-Tool/app.js',
+            'Spine-Mask-Tool/core.js',
+            'Spine-Mask-Tool/linux-api.js'
+          ];
+          for (const file of files) {
+            const text = fs.readFileSync(file, 'utf8');
+            if ([...text].some(ch => {
+              const cp = ch.codePointAt(0);
+              return cp >= 0x0400 && cp <= 0x04ff;
+            })) {
+              throw new Error('Unexpected Cyrillic text in ' + file);
+            }
+          }
+          LANGCHECK
           node --check app.js
           node --input-type=module --check < Spine-Mask-Tool/core.js
           node --input-type=module --check < Spine-Mask-Tool/app.js
