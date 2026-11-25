@@ -105,8 +105,8 @@ test('traces a compact text-like layer with many counters and fragmented highlig
   // lettering attachment. The bright flecks deliberately fragment the
   // optional highlight-only pass; the alpha silhouette must remain usable.
   paint(2, 2, 178, 62, [18, 16, 14, 255]);
-  for (let row = 0; row < 4; row++) for (let column = 0; column < 4; column++) {
-    paint(12 + column * 42, 12 + row * 13, 7, 5, [0, 0, 0, 0]);
+  for (let row = 0; row < 7; row++) for (let column = 0; column < 7; column++) {
+    paint(18 + column * 24, 8 + row * 8, 3, 3, [0, 0, 0, 0]);
   }
   let flecks = 0;
   for (let row = 0; row < 7 && flecks < 151; row++) {
@@ -121,7 +121,7 @@ test('traces a compact text-like layer with many counters and fragmented highlig
   assert.ok(result.points.length <= 240, '30-skeleton vertex budget exceeded');
   assert.equal(result.stats.mobileQualityPassed, true);
   assert.equal(result.stats.innerHolesPreserved, true);
-  assert.equal(result.visibleAlpha[40 * width + 57], 0, 'transparent counter was filled');
+  assert.equal(result.visibleAlpha[9 * width + 19], 0, 'transparent counter was filled');
   assert.equal(result.visibleAlpha[3 * width + 3], 255, 'outer text silhouette was lost');
 });
 
