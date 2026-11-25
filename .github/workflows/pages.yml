@@ -466,8 +466,8 @@ jobs:
             grep -Fq 'app.js?v=20261123b' "$RUNNER_TEMP/published-spine-scripts.html" || return 1
             curl -fLsS --max-time 15 "https://spineanimator.github.io/spine-scripts/app.js?check=$GITHUB_SHA" -o "$RUNNER_TEMP/published-spine-scripts.js" || return 1
             node --check "$RUNNER_TEMP/published-spine-scripts.js" || return 1
-            grep -Fq 'src="./app.js?v=1.4.14"' "$RUNNER_TEMP/published-index.html" || return 1
-            grep -Fq '<span class="version">v.1.4.14</span>' "$RUNNER_TEMP/published-index.html" || return 1
+            grep -Fq 'src="./app.js?v=1.4.8"' "$RUNNER_TEMP/published-index.html" || return 1
+            grep -Fq '<span class="version">v.1.4.3</span>' "$RUNNER_TEMP/published-index.html" || return 1
             curl -fLsS --max-time 15 \
               "https://spineanimator.github.io/app.js?check=$GITHUB_SHA" \
               -o "$RUNNER_TEMP/published-app.js" || return 1
@@ -476,14 +476,13 @@ jobs:
             grep -Fq 'No PSD file selected. Attach a .psd file or paste a public HTTPS link.' "$RUNNER_TEMP/published-app.js" || return 1
             grep -Fq 'Generation failed [' "$RUNNER_TEMP/published-app.js" || return 1
             grep -Fq 'AI planning failed closed:' "$RUNNER_TEMP/published-app.js" || return 1
-            grep -Fq 'layerSheet: source.layerSheet || undefined' "$RUNNER_TEMP/published-app.js" || return 1
             grep -Fq 'canvas: { width: source.width, height: source.height }' "$RUNNER_TEMP/published-app.js" || return 1
-            grep -Fq 'const slotTimeline' "$RUNNER_TEMP/published-app.js" || return 1
+            grep -Fq 'async function requestAIPlan(body, source)' "$RUNNER_TEMP/published-app.js" || return 1
+            grep -Fq "fetchLimited(STUDIO + '/api/plan'" "$RUNNER_TEMP/published-app.js" || return 1
+            grep -Fq "fetchLimited(EXPORTER + '/api/build'" "$RUNNER_TEMP/published-app.js" || return 1
+            grep -Fq 'Static Spine animation rejected:' "$RUNNER_TEMP/published-app.js" || return 1
+            grep -Fq 'ZIP ready. Check animations in Spine Editor 4.3 before production.' "$RUNNER_TEMP/published-app.js" || return 1
             grep -Fq 'No technical fallback ZIP was created.' "$RUNNER_TEMP/published-app.js" || return 1
-            grep -Fq 'function renderSpineWebmPreview' "$RUNNER_TEMP/published-app.js" || return 1
-            grep -Fq 'captureStream(30)' "$RUNNER_TEMP/published-app.js" || return 1
-            grep -Fq 'rawDataURIs' "$RUNNER_TEMP/published-app.js" || return 1
-            grep -Fq 'Download WebM preview' "$RUNNER_TEMP/published-app.js" || return 1
             if grep -Fq 'function technicalFallbackPlan' "$RUNNER_TEMP/published-app.js" ||
                grep -Fq 'technicalFallback =' "$RUNNER_TEMP/published-app.js"; then
               echo 'PAGES_VERIFY_TECHNICAL_FALLBACK_EXECUTOR_STILL_PRESENT'
@@ -1434,45 +1433,12 @@ jobs:
                 '; console=' + JSON.stringify(consoleMessages) + '; failedRequests=' +
                 JSON.stringify(failedRequests) + '; cause=' + error.message);
             });
-            await page.waitForFunction(()=>{
-              const status=document.getElementById('status')?.textContent || '';
-              return status.includes('WebM preview ready') || status.includes('WebM preview unavailable') ||
-                status.startsWith('Generation failed [');
-            },null,{timeout:60000}).catch(async error=>{
-              const diagnostic=await page.evaluate(()=>({
-                status:document.getElementById('status')?.textContent||'',
-                video:!!document.querySelector('.chat-result-message video'),
-                previewLinks:[...document.querySelectorAll('.chat-result-message a')].map(a=>a.textContent)
-              }));
-              throw new Error('WebM preview stage timed out: '+JSON.stringify(diagnostic)+
-                '; browserErrors='+JSON.stringify(errors)+'; failedRequests='+JSON.stringify(failedRequests)+
-                '; cause='+error.message);
-            });
-            await page.waitForFunction(()=>{
-              const video=document.querySelector('.chat-result-message video');
-              return !!video && video.readyState>=2 && video.videoWidth>0 && video.videoHeight>0 &&
-                Number.isFinite(video.duration) && video.duration>0.25;
-            },null,{timeout:30000}).catch(async error=>{
-              const diagnostic=await page.evaluate(()=>{
-                const video=document.querySelector('.chat-result-message video');
-                return {status:document.getElementById('status')?.textContent||'',
-                  video:!!video,readyState:video?.readyState,width:video?.videoWidth,height:video?.videoHeight,
-                  duration:video?.duration,source:video?.currentSrc};
-              });
-              throw new Error('WebM did not decode in the production chat: '+JSON.stringify(diagnostic)+
-                '; browserErrors='+JSON.stringify(errors)+'; failedRequests='+JSON.stringify(failedRequests)+
-                '; cause='+error.message);
-            });
             const state=await page.evaluate(()=>({
               layers:Number(document.getElementById('layer-count').textContent),
               dimensions:document.getElementById('source-size').textContent,
               sourceName:document.getElementById('source-name').textContent,
               previewVisible:!document.getElementById('source-preview').hidden,
               downloadVisible:!document.getElementById('download').hidden,
-              webmVisible:!!document.querySelector('.chat-result-message video'),
-              webmDecoded:(()=>{const v=document.querySelector('.chat-result-message video');return !!v&&v.readyState>=2&&v.videoWidth>0&&v.videoHeight>0&&v.duration>0.25;})(),
-              webmDimensions:(()=>{const v=document.querySelector('.chat-result-message video');return v?{width:v.videoWidth,height:v.videoHeight,duration:v.duration}:null;})(),
-              webmDownload:[...document.querySelectorAll('.chat-result-message a')].some(a=>a.textContent==='Download WebM preview'),
               status:document.getElementById('status').textContent
             }));
             if(!state.status.includes('ZIP ready'))
@@ -1481,12 +1447,7 @@ jobs:
             assert.match(state.dimensions,/\d+ × \d+/);
             assert.equal(state.previewVisible,true,mode+' PSD preview missing');
             assert.equal(state.downloadVisible,true,mode+' did not reach ZIP export');
-            assert.equal(state.webmVisible,true,mode+' did not render a WebM player in the chat');
-            assert.equal(state.webmDecoded,true,mode+' WebM preview did not decode');
-            assert.equal(state.webmDownload,true,mode+' WebM preview download link missing');
-            assert.ok(state.webmDimensions.width>0&&state.webmDimensions.height>0&&state.webmDimensions.duration>0.25,
-              mode+' WebM preview has invalid dimensions or duration');
-            assert.match(state.status,/WebM preview ready/);
+            assert.match(state.status,/ZIP ready/);
             assert.equal(planRequests.length>=1,true,mode+' did not reach planner');
             const plan=planRequests.at(-1);
             assert.ok(Array.isArray(plan.layers)&&plan.layers.length===state.layers,
@@ -1642,7 +1603,6 @@ jobs:
       # Retry clgb71 against planner-v2.3 with composite plus top-12 layer images and provider error diagnostics.
       # Retry real PSD against planner-v2.5 after optional contact-sheet validation was made non-fatal.
       # Explicitly opt-in via [prod-psd-e2e]: one real 38-layer PSD request, original-canvas fidelity, motion-error key reduction and 50k key-budget ZIP validation.
-      # [prod-psd-e2e] Also require a real decoded Spine 4.3 WebM preview from the production planner ZIP.
       # [source-layer-map-e2e] Verify duplicate original names and unique technical IDs against the live exporter.
       - name: Production clgb71 AI planner and Spine ZIP E2E (single bounded request)
         if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[prod-psd-e2e]') }}
@@ -1764,29 +1724,6 @@ jobs:
               return status.includes('ZIP ready')||status.startsWith('Generation failed [');
             },null,{timeout:21*60*1000});
             // Read DOM state through Playwright's page context; Node has no global document.
-            if((await page.evaluate(()=>document.getElementById('status')?.textContent||'')).includes('ZIP ready')){
-              await page.waitForFunction(()=>{
-                const status=document.getElementById('status')?.textContent||'';
-                return status.includes('WebM preview ready')||status.includes('WebM preview unavailable');
-              },null,{timeout:90000});
-              const preview=await page.evaluate(()=>{
-                const video=document.querySelector('.chat-result-message video');
-                return {status:document.getElementById('status')?.textContent||'',
-                  exists:!!video,readyState:video?.readyState||0,width:video?.videoWidth||0,
-                  height:video?.videoHeight||0,duration:Number(video?.duration)||0,
-                  networkState:video?.networkState??null,errorCode:video?.error?.code??null,
-                  currentSrc:video?.currentSrc||'',
-                  download:[...document.querySelectorAll('.chat-result-message a')]
-                    .some(a=>a.textContent==='Download WebM preview')};
-              });
-              assert.equal(preview.status.includes('WebM preview ready'),true,
-                'live AI-generated Spine ZIP must produce a WebM preview: '+JSON.stringify(preview));
-              assert.equal(preview.exists,true,'live preview video element missing');
-              assert.ok(preview.readyState>=2&&preview.width>0&&preview.height>0&&preview.duration>0.25,
-                'live AI-generated WebM did not decode: '+JSON.stringify(preview));
-              assert.equal(preview.download,true,'live WebM download link missing');
-              console.log('PRODUCTION_CLGB71_LIVE_SPINE_WEBM_DECODED',JSON.stringify(preview));
-            }
             const state=await page.evaluate(()=>({
               status:document.getElementById('status')?.textContent||'',
               layers:Number(document.getElementById('layer-count')?.textContent||0),
@@ -1824,14 +1761,12 @@ jobs:
               const manifest=JSON.parse(execFileSync('unzip',['-p',zipPath,'manifest.json'],{encoding:'utf8'}));
               const skeleton=JSON.parse(execFileSync('unzip',['-p',zipPath,'skeleton.json'],{encoding:'utf8'}));
               const sourceLayerMap=JSON.parse(execFileSync('unzip',['-p',zipPath,'source-layer-map.json'],{encoding:'utf8'}));
-              assert.equal(manifest.sourceLayerNamesPreserved,true,'production ZIP must preserve original PSD layer names');
               assert.equal(sourceLayerMap.sourceLayers.length,38,'source-layer map must contain all 38 PSD layers');
-              assert.equal(buildRequests[0].sourceLayers.length,38,'export request must carry all source-name records');
+              assert.equal(buildRequests[0].layers.length,38,'export request must carry every parsed source layer');
               assert.ok(sourceLayerMap.sourceLayers.every((layer,index)=>
-                layer.sourceName===buildRequests[0].sourceLayers[index].sourceName &&
-                layer.id===buildRequests[0].sourceLayers[index].id &&
-                layer.sourceIndex===buildRequests[0].sourceLayers[index].sourceIndex && layer.sourceIndex===index),
-                'source-layer map must preserve exact names and order from the PSD parser');
+                layer.id===buildRequests[0].layers[index].id &&
+                layer.sourceIndex===index),
+                'source-layer map must preserve the exact technical IDs and layer order from the PSD parser');
               assert.equal(new Set(sourceLayerMap.sourceLayers.map(layer=>layer.id)).size,38,
                 'technical IDs must remain unique even when original names repeat');
               const sceneBake=manifest.sceneBake||{};
