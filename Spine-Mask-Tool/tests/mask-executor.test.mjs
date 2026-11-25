@@ -77,6 +77,7 @@ test('exports a selected wild_txt slot from a legacy Spine skin dictionary', () 
   const output = exportLocalEditorMultiMask(
     skeleton, ['wild_txt'], points, 'sym_wild', 'wild_txt', 'wild_txt', null
   );
+  assert.equal(output.json.skeleton.images, './images/');
   assert.equal(output.clippingSlot, 'auto_mask_multi');
   assert.equal(output.json.slots[0].name, 'auto_mask_multi');
   assert.equal(output.json.slots[0].bone, 'sym_wild');
