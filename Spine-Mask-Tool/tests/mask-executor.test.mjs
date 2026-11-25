@@ -92,6 +92,39 @@ test('keeps bright faces, counters and shadow exclusions in automatic highlight 
 });
 
 
+test('traces a compact text-like layer with many counters and fragmented highlights', () => {
+  const width = 182, height = 66;
+  const data = new Uint8ClampedArray(width * height * 4);
+  const paint = (x0, y0, w, h, rgba) => {
+    for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
+      data.set(rgba, (y * width + x) * 4);
+    }
+  };
+
+  // A connected dark text backing with transparent counters, like a compact
+  // lettering attachment. The bright flecks deliberately fragment the
+  // optional highlight-only pass; the alpha silhouette must remain usable.
+  paint(2, 2, 178, 62, [18, 16, 14, 255]);
+  for (let row = 0; row < 4; row++) for (let column = 0; column < 4; column++) {
+    paint(12 + column * 42, 12 + row * 13, 7, 5, [0, 0, 0, 0]);
+  }
+  let flecks = 0;
+  for (let row = 0; row < 7 && flecks < 151; row++) {
+    for (let column = 0; column < 22 && flecks < 151; column++) {
+      paint(5 + column * 8, 5 + row * 8, 2, 2, [255, 240, 190, 255]);
+      flecks++;
+    }
+  }
+
+  const result = imageMask({ width, height, data }, { highlightFaces: true });
+  assert.ok(result.points.length >= 3, 'text layer produced no polygon');
+  assert.ok(result.points.length <= 240, '30-skeleton vertex budget exceeded');
+  assert.equal(result.stats.mobileQualityPassed, true);
+  assert.equal(result.stats.innerHolesPreserved, true);
+  assert.equal(result.visibleAlpha[18 * width + 15], 0, 'transparent counter was filled');
+  assert.equal(result.visibleAlpha[3 * width + 3], 255, 'outer text silhouette was lost');
+});
+
 test('preserves original PSD layer names while assigning collision-safe technical IDs', async () => {
   const { runInNewContext } = await import('node:vm');
   const app = fs.readFileSync(new URL('../../app.js', import.meta.url), 'utf8');
