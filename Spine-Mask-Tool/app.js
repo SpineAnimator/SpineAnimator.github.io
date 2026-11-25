@@ -1,4 +1,4 @@
-import { imageMask, availableRegions, exportJson, exportLocalEditorMask, exportLocalEditorMultiMask, maskVertices } from "./core.js?v=wild-txt-highlight-fallback-20261125";
+import { imageMask, availableRegions, exportJson, exportLocalEditorMask, exportLocalEditorMultiMask, maskVertices } from "./core.js?v=wild-txt-highlight-fallback-20261125b";
 import { submitSpineProject, pollSpineResult } from "./linux-api.js?v=20261119";
 
 const $ = id => document.getElementById(id);
