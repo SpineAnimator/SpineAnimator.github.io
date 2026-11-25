@@ -122,3 +122,32 @@ test('preserves original PSD layer names while assigning collision-safe technica
   assert.throws(() => createLayerIdentity('x'.repeat(513), usedIds),
     /must not exceed 512 characters/);
 });
+
+test('falls back to the full alpha silhouette when light-edge geometry fragments beyond the clip limit', () => {
+  const width = 220, height = 160;
+  const data = new Uint8ClampedArray(width * height * 4);
+  const paint = (x0, y0, w, h, rgba) => {
+    for (let y = y0; y < y0 + h; y++) for (let x = x0; x < x0 + w; x++) {
+      data.set(rgba, (y * width + x) * 4);
+    }
+  };
+
+  // The source silhouette is one opaque rectangle. The light-edge pass sees
+  // 151 isolated highlights plus a separate mid-tone patch (>150 components).
+  paint(10, 10, 200, 140, [30, 25, 20, 255]);
+  paint(15, 15, 30, 30, [120, 100, 70, 255]);
+  let dots = 0;
+  for (let row = 0; row < 14 && dots < 151; row++) {
+    for (let column = 0; column < 11 && dots < 151; column++) {
+      paint(70 + column * 12, 30 + row * 8, 5, 5, [255, 255, 255, 255]);
+      dots++;
+    }
+  }
+
+  const result = imageMask({ width, height, data }, { highlightFaces: true });
+  assert.equal(result.stats.highlightRequested, true);
+  assert.equal(result.stats.highlightApplied, false);
+  assert.equal(result.stats.highlightReason, 'geometry_fallback');
+  assert.equal(result.stats.shapes, 1);
+  assert.ok(result.points.length >= 3 && result.points.length <= 240);
+});
