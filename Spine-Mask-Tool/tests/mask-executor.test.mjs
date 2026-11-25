@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 
 const source = fs.readFileSync(new URL('../core.js', import.meta.url), 'utf8');
-const { imageMask, availableRegions, exportJson, normalizeSpineImagePath } = await import(
+const { imageMask, availableRegions, exportJson, exportLocalEditorMultiMask, normalizeSpineImagePath } = await import(
   'data:text/javascript;base64,' + Buffer.from(source).toString('base64')
 );
 
