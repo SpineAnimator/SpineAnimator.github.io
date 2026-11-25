@@ -21,6 +21,40 @@ test('normalizes absolute Spine texture paths for portable project ZIPs without 
   assert.notEqual(portable, original);
 });
 
+test('exports a selected wild_txt slot from a legacy Spine skin dictionary', () => {
+  const skeleton = {
+    skeleton: { spine: '4.3.26', images: '/Users/artist/project/images/' },
+    bones: [{ name: 'root' }, { name: 'sym_wild', parent: 'root', y: -4.27 }],
+    slots: [{ name: 'wild_txt', bone: 'sym_wild', attachment: 'wild_txt' }],
+    skins: {
+      default: {
+        wild_txt: {
+          wild_txt: { type: 'region', path: 'wild_txt', x: 0, y: -59.331,
+            width: 182, height: 66, scaleX: 1, scaleY: 1.001592 }
+        }
+      }
+    },
+    animations: { idle: {} }
+  };
+  const target = availableRegions(skeleton).find(item =>
+    item.slot === 'wild_txt' && item.attachment === 'wild_txt');
+  assert.ok(target, 'legacy skin dictionary did not expose wild_txt');
+  const points = [[-91, -92], [91, -92], [91, -26], [-91, -26]];
+  const output = exportLocalEditorMultiMask(
+    skeleton, ['wild_txt'], points, 'sym_wild', 'wild_txt', 'wild_txt', null
+  );
+  assert.equal(output.clippingSlot, 'auto_mask_multi');
+  assert.equal(output.json.slots[0].name, 'auto_mask_multi');
+  assert.equal(output.json.slots[0].bone, 'sym_wild');
+  assert.equal(output.json.slots[0].attachment, 'clip');
+  assert.equal(output.json.slots[1].name, 'wild_txt');
+  assert.equal(output.json.skins.default.auto_mask_multi.clip.type, 'clipping');
+  assert.equal(output.json.skins.default.auto_mask_multi.clip.end, 'wild_txt');
+  assert.equal(output.json.skins.default.auto_mask_multi.clip.vertexCount, 4);
+  assert.ok(output.json.animations.idle, 'animation was not preserved');
+  assert.equal(skeleton.slots.length, 1, 'source skeleton was mutated');
+});
+
 test('builds one valid clipping polygon from disconnected artwork with counters', () => {
   const width = 112, height = 56;
   const rgba = new Uint8ClampedArray(width * height * 4);
