@@ -220,23 +220,10 @@ jobs:
           assert.match(element('status').textContent,/ZIP ready/,'genuinely animated local PSD must reach ZIP export');
           assert.equal(element('download').hidden,false,'successful PSD processing must expose download');
           assert.equal(element('download').href,'blob:psd-upload-smoke');
-          assert.match(element('status').textContent,/WebM preview ready/,
-            'a valid Spine ZIP must be rendered to a WebM preview before completion');
-          assert.equal(previewRecorderCalls,1,'the actual Spine Player canvas must be captured with MediaRecorder');
-          assert.equal(previewConfig.animation,'smoke','the preview must use the ZIP animation, not a placeholder');
-          assert.equal(previewConfig.skeleton,'skeleton.json','the player must resolve the skeleton through rawDataURIs');
-          assert.equal(previewConfig.atlas,'skeleton.atlas','the player must resolve the atlas through rawDataURIs');
-          assert.ok(previewConfig.rawDataURIs,'the official Spine rawDataURIs map must be supplied');
-          assert.equal(previewConfig.rawDataURIs['skeleton.json'],'blob:psd-upload-smoke');
-          assert.equal(previewConfig.rawDataURIs['skeleton.atlas'],'blob:psd-upload-smoke');
-          assert.equal(previewConfig.rawDataURIs['images/smoke-layer.png'],'blob:psd-upload-smoke',
-            'the atlas page must resolve to its local image Blob URL');
-          assert.equal(previewConfig.rawDataURIs['./images/smoke-layer.png'],'blob:psd-upload-smoke',
-            'the skeleton-relative image path must resolve locally');
-          const atlasBlob=createdBlobs.find(blob=>blob.type==='text/plain');
-          assert.ok(atlasBlob,'the preview must provide the original atlas to the Spine runtime');
-          assert.ok((await atlasBlob.text()).includes('images/smoke-layer.png'),
-            'the original atlas page path must remain intact for rawDataURIs resolution');
+          // The public Pages client currently exports a Spine ZIP only.
+          // Actual WebM rendering belongs to the separately tested Spine-Link exporter.
+          assert.equal(previewRecorderCalls,0,'the PSD-to-ZIP client must not claim an unavailable browser video renderer');
+          assert.equal(previewConfig,null,'the Spine Player preview is owned by the Spine-Link WebM export pipeline');
           assert.deepEqual(requests.map(x=>x.method),['POST','POST']);
           assert.ok(requests[0].url.endsWith('/api/plan'),'PSD must call the current synchronous AI planner');
           assert.ok(requests[1].url.endsWith('/api/build'),'AI-authored PSD plan must reach the ZIP exporter');
