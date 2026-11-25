@@ -224,10 +224,12 @@ jobs:
           // Actual WebM rendering belongs to the separately tested Spine-Link exporter.
           assert.equal(previewRecorderCalls,0,'the PSD-to-ZIP client must not claim an unavailable browser video renderer');
           assert.equal(previewConfig,null,'the Spine Player preview is owned by the Spine-Link WebM export pipeline');
-          assert.deepEqual(requests.map(x=>x.method),['POST','POST']);
-          assert.ok(requests[0].url.endsWith('/api/plan'),'PSD must call the current synchronous AI planner');
-          assert.ok(requests[1].url.endsWith('/api/build'),'AI-authored PSD plan must reach the ZIP exporter');
-          const exportPayload=JSON.parse(requests[1].body);
+          assert.deepEqual(requests.map(x=>x.method),['POST','POST','POST','POST']);
+          assert.ok(requests[0].url.endsWith('/api/plan'),'static PSD must call the current synchronous AI planner');
+          assert.ok(requests[1].url.endsWith('/api/build'),'static PSD must reach the ZIP exporter and fail animation audit');
+          assert.ok(requests[2].url.endsWith('/api/plan'),'animated PSD must call the current synchronous AI planner');
+          assert.ok(requests[3].url.endsWith('/api/build'),'animated PSD must reach the ZIP exporter');
+          const exportPayload=JSON.parse(requests[3].body);
           assert.equal(exportPayload.sourceLayers.length,1,'ZIP export must include source-name metadata');
           assert.equal(exportPayload.sourceLayers[0].sourceName,'smoke-layer');
           assert.equal(exportPayload.sourceLayers[0].id,'smoke-layer');
