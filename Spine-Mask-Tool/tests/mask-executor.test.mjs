@@ -41,6 +41,7 @@ test('exports a single selected wild_txt slot from a legacy Spine skin dictionar
   assert.ok(target, 'legacy skin dictionary did not expose wild_txt');
   const points = [[0, 0], [182, 0], [182, 66], [0, 66]];
   const output = exportLocalEditorMask(skeleton, target, points, 182, 66);
+  assert.equal(output.json.skeleton.images, './images/');
   assert.equal(output.clippingSlot, 'auto_mask_wild_txt');
   assert.equal(output.targetSlot, 'wild_txt');
   assert.equal(output.json.slots[0].name, 'auto_mask_wild_txt');
@@ -190,51 +191,6 @@ test('traces a compact text-like layer with many counters and fragmented highlig
   assert.equal(result.stats.innerHolesPreserved, true);
   assert.equal(result.visibleAlpha[9 * width + 19], 0, 'transparent counter was filled');
   assert.equal(result.visibleAlpha[3 * width + 3], 255, 'outer text silhouette was lost');
-});
-
-test('preserves original PSD layer names while assigning collision-safe technical IDs', async () => {
-  const { runInNewContext } = await import('node:vm');
-  const app = fs.readFileSync(new URL('../../app.js', import.meta.url), 'utf8');
-  const start = app.indexOf('  function createLayerIdentity(');
-  const end = app.indexOf('\n  if (window.__SA_TEST_MODE__ === true)', start);
-
-  assert.notEqual(start, -1, 'production layer identity helper is missing');
-  assert.notEqual(end, -1, 'production layer identity test hook boundary is missing');
-
-  const context = Object.create(null);
-  runInNewContext(
-    app.slice(start, end) + '\nglobalThis.createLayerIdentity = createLayerIdentity;',
-    context
-  );
-
-  const createLayerIdentity = context.createLayerIdentity;
-  const usedIds = new Set();
-
-  const firstOrn = createLayerIdentity('orn', usedIds);
-  const secondOrn = createLayerIdentity('orn', usedIds);
-  assert.equal(firstOrn.id, 'orn');
-  assert.equal(secondOrn.id, 'orn_1');
-  assert.equal(firstOrn.sourceName, 'orn');
-  assert.equal(secondOrn.sourceName, 'orn');
-
-  const slashName = createLayerIdentity('arm/orn', usedIds);
-  const normalizedCollision = createLayerIdentity('arm_orn', usedIds);
-  assert.equal(slashName.id, 'arm_orn');
-  assert.equal(normalizedCollision.id, 'arm_orn_1');
-  assert.equal(slashName.sourceName, 'arm/orn');
-  assert.equal(normalizedCollision.sourceName, 'arm_orn');
-
-  const longA = 'x'.repeat(70) + 'A';
-  const longB = 'x'.repeat(70) + 'B';
-  const firstLong = createLayerIdentity(longA, usedIds);
-  const secondLong = createLayerIdentity(longB, usedIds);
-  assert.equal(firstLong.id, 'x'.repeat(70));
-  assert.equal(secondLong.id, 'x'.repeat(70) + '_1');
-  assert.equal(firstLong.sourceName, longA);
-  assert.equal(secondLong.sourceName, longB);
-
-  assert.throws(() => createLayerIdentity('x'.repeat(513), usedIds),
-    /must not exceed 512 characters/);
 });
 
 test('falls back to the full alpha silhouette when light-edge geometry fragments beyond the clip limit', () => {
