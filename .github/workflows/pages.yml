@@ -1189,10 +1189,9 @@ jobs:
             return Buffer.concat([...locals,directory,end]);
           }
           function smokeZip(request) {
-            const layers=request.layers||[],clips=request.scene?.clips||[],sourceLayers=request.sourceLayers||[];
-            if(sourceLayers.length!==layers.length || sourceLayers.some((layer,index)=>
-              !layer || layer.id!==layers[index].id || typeof layer.sourceName!=='string' || layer.sourceIndex!==index))
-              throw Error('Smoke ZIP requires exact source-layer names and unique technical IDs');
+            const layers=request.layers||[],clips=request.scene?.clips||[];
+            if(!layers.length || !clips.length || new Set(layers.map(layer=>layer.id)).size!==layers.length)
+              throw Error('Smoke ZIP requires a complete layer inventory and at least one authored clip');
             const width=Number(request.canvas?.width)||1,height=Number(request.canvas?.height)||1;
             const bones=[{name:'root'}],slots=[],attachments={},atlasPages=[],files={};
             for(let i=0;i<layers.length;i++){
@@ -1217,17 +1216,13 @@ jobs:
               width,height,images:'./images/',audio:'./audio'},
               bones,slots,skins:[{name:'default',attachments}],animations};
             const manifest={backend:'2spine-cloud-executor',spine:'4.3.26',layerCount:layers.length,
-              clipCount:clips.length,sourceLayerNamesPreserved:true,sourceLayerMapFile:'source-layer-map.json',
+              clipCount:clips.length,
               validation:{setupPreserved:true,drawOrderPreserved:true,frameZeroPreserved:true},
               renderEvidence:{status:'not-rendered',frameCount:0},artisticApproval:'pending',
               releaseReady:false,nativeSpineEditorFile:false};
             files['skeleton.json']=JSON.stringify(skeleton);
             files['skeleton.atlas']=atlasPages.join('\n');
             files['manifest.json']=JSON.stringify(manifest);
-            files['source-layer-map.json']=JSON.stringify({version:1,sourceFileName:request.sourceFileName||null,
-              sourceLayers:sourceLayers.map(layer=>({id:layer.id,sourceName:layer.sourceName,
-                sourceIndex:layer.sourceIndex,kind:layer.kind||'raster',visible:layer.visible!==false,
-                opacity:Number.isFinite(layer.opacity)?layer.opacity:255,bounds:layer.bounds}))});
             return zipStored(files);
           }
           async function newPage({planStatus=200,planBody=null}={}){
@@ -1271,21 +1266,20 @@ jobs:
             const mockedPlans=new Map();
             page.on('request',r=>{
               if(r.url().includes('/api/psd-source'))sourceRequests.push(r.url());
-              if(r.method()==='POST'&&new URL(r.url()).pathname==='/api/plan-async')planRequests.push(r.postDataJSON());
+              if(r.method()==='POST'&&new URL(r.url()).pathname==='/api/plan')planRequests.push(r.postDataJSON());
             });
-            await page.route('https://spine-plan-api.spine-animator-f8692224.workers.dev/**',async route=>{
+            await page.route('https://spine-studio.spine-animator-f8692224.workers.dev/**',async route=>{
               const req=route.request(),url=new URL(req.url());
-              const cors={'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Methods':'GET,POST,OPTIONS',
-                'Access-Control-Allow-Headers':'content-type,x-request-id','Access-Control-Expose-Headers':'Retry-After'};
+              const cors={'Access-Control-Allow-Origin':origin,'Access-Control-Allow-Methods':'POST,OPTIONS',
+                'Access-Control-Allow-Headers':'content-type'};
               if(req.method()==='OPTIONS'){await route.fulfill({status:204,headers:cors});return;}
-              if(req.method()==='POST'&&url.pathname==='/api/plan-async'){
+              if(req.method()==='POST'&&url.pathname==='/api/plan'){
+                const planRequest=req.postDataJSON();
                 if(planStatus!==200){
                   await route.fulfill({status:planStatus,headers:{...cors,'Content-Type':'application/json'},
                     body:JSON.stringify({error:{code:'FORCED_CI_TIMEOUT',message:'forced CI upstream AI timeout'}})});
                   return;
                 }
-                const planRequest=req.postDataJSON();
-                assert.match(req.headers()['x-request-id']||'',/^[a-f0-9-]{36}$/i,'planner must send an idempotency request ID');
                 const layerIds=(planRequest.layers||[]).map(layer=>layer.id);
                 const validSmokePlan={
                   scene:{
@@ -1298,20 +1292,12 @@ jobs:
                   validation:{initialPosePreserved:true,drawOrderPreserved:true,sourceLayers:layerIds.length}
                 };
                 const mockedPlan=typeof planBody==='function'?planBody(planRequest):(planBody||validSmokePlan);
-                const jobId=randomUUID();
-                mockedPlans.set(jobId,mockedPlan);
-                await route.fulfill({status:202,headers:{...cors,'Content-Type':'application/json'},
-                  body:JSON.stringify({jobId,status:'queued'})});
-                return;
-              }
-              if(req.method()==='GET'&&url.pathname==='/api/plan-status'){
-                const plan=mockedPlans.get(url.searchParams.get('id'));
-                if(!plan){await route.fulfill({status:404,headers:cors,body:JSON.stringify({error:{code:'JOB_NOT_FOUND'}})});return;}
                 await route.fulfill({status:200,headers:{...cors,'Content-Type':'application/json'},
-                  body:JSON.stringify({status:'complete',plan})});
+                  body:JSON.stringify(mockedPlan)});
                 return;
               }
-              await route.fulfill({status:404,headers:cors,body:JSON.stringify({error:{code:'NOT_FOUND'}})});
+              await route.fulfill({status:404,headers:{...cors,'Content-Type':'application/json'},
+                body:JSON.stringify({error:{code:'NOT_FOUND'}})});
             });
             await page.route('https://spine-generator.spine-animator-f8692224.workers.dev/api/build',async route=>{
               const req=route.request();
@@ -1505,7 +1491,7 @@ jobs:
             assert.equal(retryState.layers,38,'503 retry regression must use the real 38-layer PSD');
             assert.match(retryState.status,/AI planning failed closed/);
             assert.match(retryState.status,/No technical fallback ZIP was created/);
-            assert.equal(planRequests.length-plansBeforeRetry,2,'502/503 path must retry once, then stop');
+            assert.equal(planRequests.length-plansBeforeRetry,3,'502/503 path must make three bounded attempts, then stop');
             assert.equal(buildRequestsByPage.get(retryPage).length,0,'503 failure must not call /api/build');
             assert.equal(retryState.downloadHidden,true,'503 failure must not expose a ZIP');
             record('ai-503-retry-fail-closed-pass',{layers:retryState.layers,status:retryState.status,
