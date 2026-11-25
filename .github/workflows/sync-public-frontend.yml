@@ -1,0 +1,120 @@
+name: Sync approved public frontend source
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '13 * * * *'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/sync-public-frontend.yml'
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: sync-approved-public-frontend
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    if: github.repository == 'SpineAnimator/SpineAnimator.github.io'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Checkout authoritative public frontend source
+        uses: actions/checkout@v4
+        with:
+          repository: SpineAnimator/spine-web-source
+          ref: main
+          path: source
+          persist-credentials: false
+
+      - name: Checkout this Pages repository with its own workflow token
+        uses: actions/checkout@v4
+        with:
+          repository: SpineAnimator/SpineAnimator.github.io
+          ref: main
+          path: target
+          token: ${{ github.token }}
+          persist-credentials: true
+
+      - name: Validate source files and public frontend safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd source
+          required=(
+            .nojekyll README.md index.html app.js
+            Spine-Mask-Tool/index.html
+            Spine-Mask-Tool/app.js
+            Spine-Mask-Tool/core.js
+            Spine-Mask-Tool/linux-api.js
+          )
+          for file in "${required[@]}"; do
+            test -s "$file" || { echo "::error::Missing public frontend file: $file"; exit 1; }
+            git ls-files --error-unmatch "$file" >/dev/null
+          done
+          test -f .nojekyll
+          grep -Fq 'linux-api.js' Spine-Mask-Tool/app.js
+          grep -Fq '<html lang="en">' Spine-Mask-Tool/index.html
+          if grep -nE 'github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|ACCESS_TOKEN|SPINE_LICENSE_KEY|CLOUDFLARE_API_TOKEN' "${required[@]}"; then
+            echo "::error::Possible credential material detected in public frontend"
+            exit 1
+          fi
+          if grep -nE '[\u0400-\u04FF]' Spine-Mask-Tool/index.html Spine-Mask-Tool/app.js Spine-Mask-Tool/core.js Spine-Mask-Tool/linux-api.js; then
+            echo "::error::Unexpected non-English source text in the public mask tool"
+            exit 1
+          fi
+          node --check app.js
+          node --input-type=module --check < Spine-Mask-Tool/core.js
+          node --input-type=module --check < Spine-Mask-Tool/app.js
+          node --input-type=module --check < Spine-Mask-Tool/linux-api.js
+          echo "PUBLIC_FRONTEND_SOURCE_VALIDATED"
+
+      - name: Copy only the approved browser frontend allowlist
+        id: sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/Spine-Mask-Tool
+          cp source/.nojekyll target/.nojekyll
+          cp source/README.md target/README.md
+          cp source/index.html target/index.html
+          cp source/app.js target/app.js
+          cp source/Spine-Mask-Tool/index.html target/Spine-Mask-Tool/index.html
+          cp source/Spine-Mask-Tool/app.js target/Spine-Mask-Tool/app.js
+          cp source/Spine-Mask-Tool/core.js target/Spine-Mask-Tool/core.js
+          cp source/Spine-Mask-Tool/linux-api.js target/Spine-Mask-Tool/linux-api.js
+
+          cd target
+          git config user.name 'Spine frontend sync'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -- .nojekyll README.md index.html app.js \
+            Spine-Mask-Tool/index.html Spine-Mask-Tool/app.js \
+            Spine-Mask-Tool/core.js Spine-Mask-Tool/linux-api.js
+          if git diff --cached --quiet; then
+            echo 'changed=false' >> "$GITHUB_OUTPUT"
+            echo 'PUBLIC_FRONTEND_ALREADY_CURRENT'
+            exit 0
+          fi
+          source_sha="$(git -C ../source rev-parse HEAD)"
+          git commit -m "web: sync approved public frontend $source_sha"
+          git push origin HEAD:main
+          echo 'changed=true' >> "$GITHUB_OUTPUT"
+          echo "PUBLIC_FRONTEND_UPDATED_FROM $source_sha"
+
+      - name: Trigger the existing sanitized GitHub Pages deployment
+        if: steps.sync.outputs.changed == 'true'
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: 'pages.yml',
+              ref: 'main'
+            });
+            core.notice('Approved frontend synchronized; the repository-owned pages.yml deployment was dispatched.');
