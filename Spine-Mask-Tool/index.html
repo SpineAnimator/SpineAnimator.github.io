@@ -229,9 +229,9 @@ body:not(.agent-mode) .toolbar h1{font-size:1.1rem}
           <summary>Bridge setup · Chrome + native host</summary>
           <ol>
             <li>Download and extract <strong>Spine Mask + Resize Bridge</strong>.</li>
-            <li>Double-click exactly one installer: <strong>INSTALL.command</strong> on macOS, <strong>INSTALL.bat</strong> on Windows, or <strong>INSTALL.sh</strong> on Linux. No terminal commands or manual Chrome extension loading are required.</li>
+            <li>Double-click exactly one installer: <strong>INSTALL.command</strong> on macOS, <strong>INSTALL.bat</strong> on Windows, or <strong>INSTALL.desktop</strong> on Linux. No terminal commands or manual Chrome extension loading are required.</li>
             <li>The installer registers the local Native Messaging host, downloads the official Chrome for Testing browser if needed, loads the extension into a separate dedicated profile, and opens this tool. Use that browser window for Spine Mask Tool. Your normal Chrome profile is not modified.</li>
-            <li>On first launch, allow the operating system's normal security confirmation if shown and keep an internet connection while Chrome for Testing downloads.</li>
+            <li>On first launch, allow the operating system's normal security confirmation if shown and keep an internet connection while Chrome for Testing downloads. No Python installation or terminal commands are needed.</li>
             <li>Click <strong>Spine</strong> and choose <strong>Import open Spine project</strong>. The Bridge checks the running editor and its recent-project settings on macOS, Windows and Linux. If the project is ambiguous, use <strong>Choose local Spine project</strong>.</li>
           </ol>
           <p>Web pages cannot silently install browser extensions. The dedicated browser is the supported one-click installation path. The original Spine project remains untouched. <a href="https://github.com/SpineAnimator/Spine-Resize/blob/main/spine-bridge/README.md" target="_blank" rel="noopener noreferrer">Desktop and Linux CI agent setup</a></p>
