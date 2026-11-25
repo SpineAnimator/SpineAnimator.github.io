@@ -171,10 +171,8 @@ jobs:
                   drawOrder:['smoke-node'],
                   clips:[{id:'smoke',duration:1,tracks:[{target:'smoke-node',property:'y',keys:[{time:0,value:0},{time:1,value:12}]}]}]
                 },validation:{initialPosePreserved:true,drawOrderPreserved:true,sourceLayers:1}};
-              const body=url.endsWith('/api/plan-async')
-                ? JSON.stringify({jobId:'00000000-0000-4000-8000-000000000001',status:'queued'})
-                : url.includes('/api/plan-status')
-                  ? JSON.stringify({status:'complete',plan}) : null;
+              const body=url.endsWith('/api/plan')
+                ? JSON.stringify(plan) : null;
               const pose=staticFixture?0:12;
               const png=Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAC0lEQVR4nGNgQAcAABIAAXfx+gAAAAAASUVORK5CYII=','base64');
               const skeleton=JSON.stringify({skeleton:{spine:'4.3.26'},bones:[{name:'root'}],
@@ -239,11 +237,10 @@ jobs:
           assert.ok(atlasBlob,'the preview must provide the original atlas to the Spine runtime');
           assert.ok((await atlasBlob.text()).includes('images/smoke-layer.png'),
             'the original atlas page path must remain intact for rawDataURIs resolution');
-          assert.deepEqual(requests.map(x=>x.method),['POST','GET','POST','POST','GET','POST']);
-          assert.ok(requests[0].url.endsWith('/api/plan-async'),'PSD must queue through the async planner');
-          assert.ok(requests[1].url.includes('/api/plan-status?id='),'PSD must poll the queued planner job');
-          assert.ok(requests[2].url.endsWith('/api/build'),'planned PSD must reach the ZIP exporter');
-          const exportPayload=JSON.parse(requests[2].body);
+          assert.deepEqual(requests.map(x=>x.method),['POST','POST']);
+          assert.ok(requests[0].url.endsWith('/api/plan'),'PSD must call the current synchronous AI planner');
+          assert.ok(requests[1].url.endsWith('/api/build'),'AI-authored PSD plan must reach the ZIP exporter');
+          const exportPayload=JSON.parse(requests[1].body);
           assert.equal(exportPayload.sourceLayers.length,1,'ZIP export must include source-name metadata');
           assert.equal(exportPayload.sourceLayers[0].sourceName,'smoke-layer');
           assert.equal(exportPayload.sourceLayers[0].id,'smoke-layer');
