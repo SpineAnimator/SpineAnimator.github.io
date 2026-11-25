@@ -797,7 +797,7 @@ export function exportLocalEditorMask(original,target,points,sourceW,sourceH) {
   if(!original||!target||!Array.isArray(points)||points.length<3)
     throw Error("Existing Spine JSON, target image and valid mask required.");
   if(points.length>2500)throw Error("Clipping mask exceeds 2500 vertices.");
-  const json=JSON.parse(JSON.stringify(original));
+  const json=normalizeSpineImagePath(original);
   const index=json.slots?.findIndex(s=>s.name===target.slot);
   if(index===undefined||index<0)throw Error("Target Spine slot not found.");
   const originalSlot=json.slots[index];
