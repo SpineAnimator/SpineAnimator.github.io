@@ -230,10 +230,12 @@ jobs:
           assert.ok(requests[2].url.endsWith('/api/plan'),'animated PSD must call the current synchronous AI planner');
           assert.ok(requests[3].url.endsWith('/api/build'),'animated PSD must reach the ZIP exporter');
           const exportPayload=JSON.parse(requests[3].body);
-          assert.equal(exportPayload.sourceLayers.length,1,'ZIP export must include source-name metadata');
-          assert.equal(exportPayload.sourceLayers[0].sourceName,'smoke-layer');
-          assert.equal(exportPayload.sourceLayers[0].id,'smoke-layer');
-          assert.equal(exportPayload.sourceLayers[0].sourceIndex,0);
+          assert.deepEqual(exportPayload.canvas,{width:2,height:2},
+            'Spine exporter must receive the original PSD canvas dimensions');
+          assert.equal(exportPayload.layers.length,1,'Spine exporter must receive the exact raster source-layer inventory');
+          assert.equal(exportPayload.layers[0].id,'smoke-layer');
+          assert.deepEqual(exportPayload.layers[0].bounds,{x:0,y:0,width:2,height:2},
+            'source-layer geometry must remain unchanged');
           assert.equal(urlConstructions,0,'valid local PSD must never construct a source URL');
           element('source-file').files=[];
           element('source-url').value='not a valid absolute URL';
