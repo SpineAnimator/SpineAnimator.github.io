@@ -1,5 +1,5 @@
 // Spine Mask Tool geometry and Spine JSON adapter. Client-side only, no external services.
-export function imageMask(image, options = {}) {
+function imageMaskAttempt(image, options = {}) {
   const w = image.width, h = image.height, total = w * h;
   if (!w || !h || total > 2400000) throw Error("Image too large (max 2.4 million analysis pixels).");
   const alpha = Math.min(254, Math.max(0, Number(options.alpha ?? 24)));
@@ -140,6 +140,24 @@ export function imageMask(image, options = {}) {
       highlightRequested, highlightApplied: highlight.applied, highlightReason: highlight.reason, highlightCutoff: highlight.cutoff }
   };
 }
+// Light-edge extraction is an optimization, not a reason to reject an otherwise
+// valid silhouette. If the highlight-only geometry cannot form a valid/mobile
+// clip (common with text, counters and fragmented lettering), retry the exact
+// same source alpha as a full silhouette and report the fallback in stats.
+export function imageMask(image, options = {}) {
+  try {
+    return imageMaskAttempt(image, options);
+  } catch (error) {
+    if (options.highlightFaces !== true) throw error;
+    const result = imageMaskAttempt(image, { ...options, highlightFaces: false });
+    result.stats.highlightRequested = true;
+    result.stats.highlightApplied = false;
+    result.stats.highlightReason = "geometry_fallback";
+    result.stats.highlightFallbackReason = String(error?.message || error);
+    return result;
+  }
+}
+
 // Mobile performance profile. 30 simultaneously visible skeletons share a
 // 7,200 clipping-vertex budget. Geometry is optimized once at authoring time;
 // no manual sliders or repeated per-frame optimization are added.
