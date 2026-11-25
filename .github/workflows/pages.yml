@@ -191,7 +191,9 @@ jobs:
                 'source-layer-map.json':sourceLayerMap,'images/smoke-layer.png':png});
               const bytes=body!==null?new TextEncoder().encode(body).buffer:
                 zip.buffer.slice(zip.byteOffset,zip.byteOffset+zip.byteLength);
-              return {ok:true,headers:{get:()=>null},arrayBuffer:async()=>bytes};
+              return {ok:true,headers:{get:()=>null},
+                json:async()=>body===null?null:JSON.parse(body),
+                arrayBuffer:async()=>bytes};
             }})}}};
           context.fetch=context.window.agPsd.readPsd().fetch;
           vm.runInNewContext(source,context,{filename:'app.js'});
