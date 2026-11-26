@@ -815,9 +815,9 @@ jobs:
             for(const selector of ['#open-project','#open-folder','#open-editor','#bridge-choose','#bridge-install'])
               assert.equal(await page.locator(selector).isVisible(),true,selector+' is not usable');
             const installerHref=await page.locator('#quick-install-bridge').getAttribute('href');
-  assert.match(installerHref,/Spine-Mask-Bridge-Linux\.tar\.gz$/);
-  assert.equal(await page.locator('#bridge-install').getAttribute('href'),installerHref,
-    'Quick and Agent mode must use the same OS-specific installer');;
+            assert.match(installerHref,/Spine-Mask-Bridge-Linux\.tar\.gz$/);
+            assert.equal(await page.locator('#bridge-install').getAttribute('href'),installerHref,
+              'Quick and Agent mode must use the same OS-specific installer');
             const fixtureFolder=fs.mkdtempSync(path.join(os.tmpdir(),'mask-project-import-'));
             fs.mkdirSync(path.join(fixtureFolder,'images'));
             fs.writeFileSync(path.join(fixtureFolder,'skeleton.json'),JSON.stringify(skel));
