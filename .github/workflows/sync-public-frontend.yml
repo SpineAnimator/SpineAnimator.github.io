@@ -1,4 +1,5 @@
 name: Sync approved public frontend source
+# Triggered manually after upstream Spine Mask UI and installer documentation updates.
 
 on:
   workflow_dispatch:
