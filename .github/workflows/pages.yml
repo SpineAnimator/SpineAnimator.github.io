@@ -1053,7 +1053,7 @@ jobs:
               null,{timeout:15000});
             assert.equal(await page.locator('#quick-install-bridge').isVisible(),true,
               'Installer must reappear after Bridge disconnect');
-            assert.equal(await page.locator('#quick-install-bridge').textContent(),'Install Bridge / Extension');
+            assert.equal(await page.locator('#quick-install-bridge').textContent(),'Install Bridge');
             console.log('MASK_SIMPLE_BRIDGE_INSTALL_LIFECYCLE_PASS');
             assert.deepEqual(pageErrors,[]);
             console.log('MASK_TOOL_BROWSER_E2E_PASS', {url,singleVertices:clip.vertexCount,mergedSlots:merged.slots.length});
