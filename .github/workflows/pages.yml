@@ -1977,6 +1977,13 @@ jobs:
           mask_gateway="$(health 'https://spine-mask-native-gateway.vladyslavchaplygin.workers.dev/health')"
           jq -e '.status == "ok" and .storage == "ephemeral-kv" and .ttlSeconds == 900' <<<"$mask_gateway" >/dev/null
           echo "SPINE_MASK_NATIVE_GATEWAY_HEALTH_PASS $mask_gateway" >> "$GITHUB_STEP_SUMMARY"
+          private_status="$(curl --silent --show-error --max-time 15 --output "$RUNNER_TEMP/mask-private-queue.json" --write-out '%{http_code}' 'https://spine-mask-native-gateway.vladyslavchaplygin.workers.dev/v1/private/queue')"
+          test "$private_status" = "401"
+          jq -e '.error == "unauthorized"' "$RUNNER_TEMP/mask-private-queue.json" >/dev/null
+          no_origin_status="$(curl --silent --show-error --max-time 15 --output "$RUNNER_TEMP/mask-no-origin.json" --write-out '%{http_code}' --request POST 'https://spine-mask-native-gateway.vladyslavchaplygin.workers.dev/v1/sessions')"
+          test "$no_origin_status" = "403"
+          jq -e '.error == "forbidden"' "$RUNNER_TEMP/mask-no-origin.json" >/dev/null
+          echo "SPINE_MASK_NATIVE_GATEWAY_FAIL_CLOSED_PASS" >> "$GITHUB_STEP_SUMMARY"
           if [[ "$(jq -r '.privateArchive' <<<"$archive")" != "true" ]]; then
             echo "::warning::Private GitHub library access is not configured. Add GITHUB_LIBRARY_TOKEN directly as a Cloudflare Worker Secret; never place it in chat or a public Actions run."
             echo "PRIVATE_GITHUB_LIBRARY_NOT_CONNECTED — GITHUB_LIBRARY_TOKEN is absent from the Worker secret bindings." >> "$GITHUB_STEP_SUMMARY"
