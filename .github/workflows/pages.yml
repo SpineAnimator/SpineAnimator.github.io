@@ -1973,6 +1973,10 @@ jobs:
           archive="$(health 'https://spine-archive.spine-animator-f8692224.workers.dev/api/health')"
           jq -e '.ok == true' <<<"$archive" >/dev/null
           echo "SPINE_ARCHIVE_HEALTH $archive" >> "$GITHUB_STEP_SUMMARY"
+
+          mask_gateway="$(health 'https://spine-mask-native-gateway.vladyslavchaplygin.workers.dev/health')"
+          jq -e '.status == "ok" and .storage == "ephemeral-kv" and .ttlSeconds == 900' <<<"$mask_gateway" >/dev/null
+          echo "SPINE_MASK_NATIVE_GATEWAY_HEALTH_PASS $mask_gateway" >> "$GITHUB_STEP_SUMMARY"
           if [[ "$(jq -r '.privateArchive' <<<"$archive")" != "true" ]]; then
             echo "::warning::Private GitHub library access is not configured. Add GITHUB_LIBRARY_TOKEN directly as a Cloudflare Worker Secret; never place it in chat or a public Actions run."
             echo "PRIVATE_GITHUB_LIBRARY_NOT_CONNECTED — GITHUB_LIBRARY_TOKEN is absent from the Worker secret bindings." >> "$GITHUB_STEP_SUMMARY"
@@ -1999,3 +2003,4 @@ jobs:
           }
           preflight 'https://spine-drive-source.spine-animator-f8692224.workers.dev/api/psd-source' GET 'content-type'
           preflight 'https://spine-archive.spine-animator-f8692224.workers.dev/api/session' POST 'content-type,authorization'
+          preflight 'https://spine-mask-native-gateway.vladyslavchaplygin.workers.dev/health' GET 'content-type'
