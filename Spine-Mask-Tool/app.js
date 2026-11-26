@@ -598,7 +598,7 @@ async function doEverything() {
     status(editorFailure
       ? "Spine ZIP saved locally. Editor sync failed: " + editorFailure
       : "Complete Spine ZIP saved locally. Queuing licensed Linux verification…", !!editorFailure);
-    // Private CI receives the project only after this user-triggered Make all.
+    // Public Ubuntu verification receives the project only after this user-triggered Make all.
     void verifyLinuxZip(zip).then(result => {
       if (editorFailure) {
         const linux = result?.status === "ready"
@@ -1199,7 +1199,7 @@ async function writeToEditor(epoch){
     await writeBytesToHost(started.stage,"mask.json",encoded);
     const saved=await requestBridge("commit_result",{session,stage:started.stage,openEditor:true},210000);
     if(saved?.imported&&saved?.opened){state.editorOpenResult=true;bridgeStatus("Mask applied · "+saved.project+" opened in local Spine Editor.");}
-    else if(saved?.imported){state.editorOpenResult="saved";bridgeStatus("New .spine project saved; automatic editor opening could not be verified on this platform.",true);}
+    else if(saved?.imported){state.editorOpenResult="saved";bridgeStatus("New .spine project saved; automatic editor opening could not be verified on this platform.",true);return false;}
     else if(saved?.saved){
       state.editorOpenResult="saved";
       bridgeStatus("New Spine JSON saved. Native editor import was unavailable." +
