@@ -65,6 +65,8 @@ jobs:
           grep -Fq 'Spine-Mask-Bridge-Windows.exe' Spine-Mask-Tool/app.js
           grep -Fq 'Spine-Mask-Bridge-macOS.zip' Spine-Mask-Tool/app.js
           grep -Fq 'Spine-Mask-Bridge-Linux.tar.gz' Spine-Mask-Tool/app.js
+          grep -Fq 'quick-install-bridge", "bridge-install' Spine-Mask-Tool/app.js
+          grep -Fq 'No terminal commands' Spine-Mask-Tool/index.html
           grep -Fq '<html lang="en">' Spine-Mask-Tool/index.html
           if grep -nE 'github_pat_[A-Za-z0-9_]{20,}|gh[pousr]_[A-Za-z0-9]{20,}|BEGIN (RSA|OPENSSH|EC) PRIVATE KEY|ACCESS_TOKEN|SPINE_LICENSE_KEY|CLOUDFLARE_API_TOKEN' "${required[@]}"; then
             echo "::error::Possible credential material detected in public frontend"
