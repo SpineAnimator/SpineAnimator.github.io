@@ -12,8 +12,24 @@ let bridgeInstalled = false;
 let bridgeNeedsUpdate = false;
 let linuxVerifyBusy = false;
 let linuxResultUrl = null;
+function configureBridgeDownload() {
+  const link = $("quick-install-bridge");
+  if (!link) return;
+  const platform = String(navigator.userAgentData?.platform || navigator.platform || navigator.userAgent || "").toLowerCase();
+  const asset = platform.includes("win")
+    ? "Spine-Mask-Bridge-Windows.exe"
+    : platform.includes("mac")
+      ? "Spine-Mask-Bridge-macOS.zip"
+      : "Spine-Mask-Bridge-Linux.tar.gz";
+  link.href = "https://github.com/SpineAnimator/Spine-Resize/releases/download/spine-mask-bridge-v1/" + asset;
+  link.removeAttribute("download");
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.textContent = "Install Bridge";
+}
+configureBridgeDownload();
 function reflectBridgeInstall() {
-  const label = bridgeNeedsUpdate ? "Update Bridge" : "Install Bridge / Extension";
+  const label = bridgeNeedsUpdate ? "Update Bridge" : "Install Bridge";
   for (const id of ["quick-install-bridge", "bridge-install"]) {
     const link = $(id);
     if (!link) continue;
@@ -527,9 +543,22 @@ $("generate").addEventListener("click", generate);
 async function doEverything() {
   if (quickBusy) return;
   if (!state.source && !state.json && !state.binary) {
-    quickPickerArmed = true;
-    $("project-files").click();
-    return;
+    // Prefer the already-open local Spine Editor project. The file picker is
+    // only a fallback when Native Messaging is unavailable or no project is open.
+    simpleBridgeRequested = true;
+    await connectEditor(false);
+    // If the page-load health check was already running, wait for its queued
+    // manual open-project request instead of racing straight to the file picker.
+    const bridgeWaitStarted = Date.now();
+    while ((connectEditor.busy || connectEditor.manualQueued) &&
+           Date.now() - bridgeWaitStarted < 215000) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    if (!state.source && !state.json && !state.binary) {
+      quickPickerArmed = true;
+      $("project-files").click();
+      return;
+    }
   }
   if (state.binary && !state.json) {
     setAgentMode(true);
